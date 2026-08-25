@@ -20,7 +20,7 @@ config.example.json                   заготовка настройки
 ```
 
 Опционально: `.github/workflows/ds-watch.yml` (опрос Figma по расписанию),
-`bin/tgbot.py` уже входит в bin/ (телеграм), `skill/` (роль для агента с Figma MCP).
+`skill/` (роль для агента с Figma MCP).
 
 ## Шаг 2. Конфиг
 
@@ -110,9 +110,6 @@ python3 bin/nw.py --accept
 
 **Расписание по Figma** — `ds-watch.yml` + секрет `FIGMA_TOKEN`: репозиторий
 сам замечает, что библиотеку публиковали, и помечает слепок несвежим.
-
-**Телеграм** — `bin/tgbot.py`: `/run`, `/report`, `/status` с телефона.
-Токен от @BotFather в `~/.night-watch.env`, список разрешённых чатов обязателен.
 
 **Вебхук вместо опроса** — `bin/webhook.py` + `relay/cloudflare-worker.js`:
 событие LIBRARY_PUBLISH будит CI сразу после публикации.

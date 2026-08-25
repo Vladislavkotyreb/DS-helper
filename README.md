@@ -56,7 +56,7 @@ python3 bin/nw.py --promote  # current DS snapshot becomes the review base
 ```
 
 Reports are English by default; `"lang": "ru"` in config.json switches
-everything — reports, CLI, Telegram — to Russian.
+everything — reports and CLI — to Russian.
 
 ## Finding categories
 
@@ -93,11 +93,10 @@ get pull requests.
 ## Layout
 
 ```
-bin/            the engine (scan, diff, review, watch, webhook, telegram)
+bin/            the engine (scan, diff, review, watch, webhook)
 docs/           quickstart in two languages, Russian README
 examples/       a real project's configuration
 skill/          an agent role for taking DS snapshots via Figma MCP
 relay/          Figma → GitHub webhook relay (Cloudflare Worker)
-launchd/        macOS autostart for the Telegram bot
 .github/        prototypes-check (push/PR) and ds-watch (schedule)
 ```

@@ -18,8 +18,7 @@ config.example.json                      configuration template
 ```
 
 Optional: `.github/workflows/ds-watch.yml` (scheduled Figma polling),
-`bin/tgbot.py` is already inside bin/ (Telegram), `skill/` (a role for an
-agent with Figma MCP).
+`skill/` (a role for an agent with Figma MCP).
 
 ## Step 2. Configuration
 
@@ -117,10 +116,6 @@ gradually. Commit `config.json`, `snapshots/ds-latest.json` and
 
 **Figma schedule** — `ds-watch.yml` + a `FIGMA_TOKEN` secret: the repository
 notices library publishes on its own and marks the snapshot stale.
-
-**Telegram** — `bin/tgbot.py`: `/run`, `/report`, `/status` from your phone.
-Token from @BotFather in `~/.night-watch.env`; the allowed-chats list is
-mandatory.
 
 **Webhook instead of polling** — `bin/webhook.py` +
 `relay/cloudflare-worker.js`: a LIBRARY_PUBLISH event wakes CI right after a
