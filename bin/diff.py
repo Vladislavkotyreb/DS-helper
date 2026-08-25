@@ -52,6 +52,94 @@ def load_config(here):
         raise SystemExit(2)
 
 
+def fp(f):
+    """
+    Отпечаток находки для базовой линии. Номер строки в него не входит: код
+    двигается, а находка остаётся той же. Счётчик повторов тоже отбрасывается —
+    иначе «57 раз» и «58 раз» будут разными находками.
+    """
+    subj = re.sub(r'\s*—\s*\d+\s+раз\w*\s*$', '', str(f.get('subject', '')))
+    return '|'.join([f['cat'], str(f['proto']), str(f.get('file') or ''), subj])
+
+
+def apply_baseline(findings, baseline):
+    """Размечает находки: new / baselined. Возвращает ещё и список починенного."""
+    known = set(baseline.get('fingerprints') or [])
+    seen = set()
+    for f in findings:
+        k = fp(f)
+        seen.add(k)
+        f['state'] = 'baselined' if k in known else 'new'
+    fixed = sorted(known - seen)
+    return fixed
+
+
+SEV_RANK = {'high': 3, 'medium': 2, 'low': 1, 'info': 0}
+
+
+def decide_exit(findings, mode):
+    """
+    Чем считать провал прогона. По умолчанию — только новыми находками:
+    так бот можно включить на легаси, где расхождений сотни, и он будет
+    следить, чтобы их не становилось больше.
+    """
+    if mode == 'never':
+        return 0
+    if mode == 'new':
+        return 1 if any(f.get('state') == 'new' for f in findings) else 0
+    floor = SEV_RANK.get(mode, 3)
+    for f in findings:
+        if f.get('state') == 'baselined':
+            continue
+        if SEV_RANK.get(f['sev'], 0) >= floor:
+            return 1
+    return 0
+
+
+def to_sarif(findings, code, cfg, include_baselined=False):
+    # GitHub кладёт аннотацию по пути от корня репозитория, поэтому голого имени
+    # файла мало: к нему надо приставить папку источника.
+    prefix = {}
+    for p in code.get('prototypes', []):
+        d = p.get('dir') or ''
+        prefix[p['id']] = '' if os.path.isabs(d) else (d.rstrip('/') + '/' if d else '')
+    """
+    SARIF, чтобы находки приезжали в GitHub построчными аннотациями,
+    а не текстом, который надо открывать отдельно.
+    """
+    rules, rule_ids = [], set()
+    results = []
+    for f in findings:
+        if f.get('state') == 'baselined' and not include_baselined:
+            continue
+        rid = f['cat']
+        if rid not in rule_ids:
+            rule_ids.add(rid)
+            rules.append({'id': rid, 'name': rid,
+                          'shortDescription': {'text': CAT_RU.get(rid, rid)},
+                          'defaultConfiguration': {'level': 'warning'}})
+        loc = []
+        if f.get('file') and f['file'] != 'Figma':
+            uri = prefix.get(f['proto'], '') + str(f['file'])
+            loc = [{'physicalLocation': {
+                'artifactLocation': {'uri': uri.replace('\\', '/')},
+                'region': {'startLine': max(1, int(f.get('line') or 1))}}}]
+        results.append({
+            'ruleId': rid,
+            'level': {'high': 'error', 'medium': 'warning',
+                      'low': 'note', 'info': 'note'}[f['sev']],
+            'message': {'text': '%s — %s' % (f.get('subject'), f.get('msg'))},
+            'locations': loc,
+            'partialFingerprints': {'nightWatch/v1': fp(f)},
+        })
+    return {'$schema': 'https://json.schemastore.org/sarif-2.1.0.json',
+            'version': '2.1.0',
+            'runs': [{'tool': {'driver': {'name': 'Night Watch DS-helper',
+                                          'informationUri': 'https://github.com/Vladislavkotyreb/DS-helper',
+                                          'rules': rules}},
+                      'results': results}]}
+
+
 def ref(token_name):
     """Как сослаться на токен в этом синтаксисе: $scss / @less / var(--custom-property)."""
     return token_name if token_name[:1] in ('$', '@') else 'var(%s)' % token_name
@@ -464,13 +552,15 @@ def check_ds_defects(ds, out):
                                     % (prop, ' / '.join(g))))
 
 
-def render(findings, code, ds, cfg, chrome_counts):
+def render(findings, code, ds, cfg, chrome_counts, baseline=None, fixed=None):
     ts = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+    fresh = [f for f in findings if f.get('state') != 'baselined']
+    based = [f for f in findings if f.get('state') == 'baselined']
     by_cat = collections.defaultdict(list)
-    for f in findings:
+    for f in fresh:
         by_cat[f['cat']].append(f)
     counts = {c: len(v) for c, v in by_cat.items()}
-    high = sum(1 for f in findings if f['sev'] == 'high')
+    high = sum(1 for f in fresh if f['sev'] == 'high')
 
     L = []
     L.append('# Night Watch R4S — сводка прогона')
@@ -478,7 +568,20 @@ def render(findings, code, ds, cfg, chrome_counts):
     L.append('%s · ДС `%s` · слепок ДС от %s'
              % (ts, ds['source']['designSystemFileKey'], ds.get('generatedAt', '—')[:10]))
     L.append('')
-    L.append('**%d расхождений, из них %d важных.** Правки не вносились — режим только отчёт.' % (len(findings), high))
+    if baseline:
+        L.append('**Новых расхождений: %d, из них важных %d.** В базовой линии — %d, '
+                 'они приняты и провал прогона не вызывают.' % (len(fresh), high, len(based)))
+        if fixed:
+            L.append('')
+            L.append('С прошлой базовой линии **исправлено %d** — их можно вычеркнуть '
+                     'командой `python3 bin/nw.py --accept`.' % len(fixed))
+    else:
+        L.append('**%d расхождений, из них %d важных.** Базовой линии нет: включить бота '
+                 'на существующем коде удобнее командой `python3 bin/nw.py --accept`, '
+                 'тогда он станет следить, чтобы расхождений не прибавлялось.'
+                 % (len(fresh), high))
+    L.append('')
+    L.append('Правки не вносились — режим только отчёт.')
     L.append('')
     if not ds.get('variablesComplete'):
         L.append('> Слепок ДС неполный: %s' % ds.get('variablesNote', ''))
@@ -500,7 +603,7 @@ def render(findings, code, ds, cfg, chrome_counts):
     for p in code['prototypes']:
         if not p['exists']:
             L.append('| %s | — | — | — | папки нет |' % p['id']); continue
-        n = sum(1 for f in findings if f['proto'] == p['id'])
+        n = sum(1 for f in fresh if f['proto'] == p['id'])
         raw = len([r for r in p['raws'] if not r['outOfScope']])
         L.append('| %s | %s | %d | %d | %d |' % (p['id'], p['tier'], len(p['tokens']), raw, n))
     L.append('')
@@ -558,6 +661,29 @@ def render(findings, code, ds, cfg, chrome_counts):
             L.append('- %s' % g)
         L.append('')
 
+    if based:
+        L.append('## Принято в базовую линию — %d' % len(based))
+        L.append('')
+        L.append('Эти расхождения уже были, когда бота включали. Он их помнит и не считает '
+                 'провалом, но следит, чтобы список не рос.')
+        L.append('')
+        bc = collections.Counter(f['cat'] for f in based)
+        L.append('| Категория | Штук |')
+        L.append('|---|---:|')
+        for c, n in bc.most_common():
+            L.append('| %s | %d |' % (CAT_RU.get(c, c), n))
+        L.append('')
+
+    if fixed:
+        L.append('## Исправлено с прошлого раза — %d' % len(fixed))
+        L.append('')
+        for k in fixed[:20]:
+            cat, proto, fl, subj = (k.split('|') + ['', '', '', ''])[:4]
+            L.append('- %s · %s · %s' % (CAT_RU.get(cat, cat), proto, subj or fl))
+        if len(fixed) > 20:
+            L.append('- … и ещё %d' % (len(fixed) - 20))
+        L.append('')
+
     L.append('---')
     L.append('')
     L.append('Отчёт собран `night-watch/bin/diff.py`. Публикацию библиотеки бот не трогает, '
@@ -572,6 +698,11 @@ def main():
     ds = json.load(open(os.path.join(here, 'snapshots', 'ds-latest.json'), encoding='utf-8'))
     code = json.load(open(os.path.join(here, 'snapshots', 'code-latest.json'), encoding='utf-8'))
 
+    args = sys.argv[1:]
+    def opt(name, default=None):
+        return args[args.index(name) + 1] if name in args else default
+    fail_on = opt('--fail-on', cfg.get('failOn', 'new'))
+
     findings = []
     chrome = collections.OrderedDict()
     for p in code['prototypes']:
@@ -583,16 +714,39 @@ def main():
         check_components(p, ds, cfg, findings)
     check_ds_defects(ds, findings)
 
+    bl_path = os.path.join(here, 'snapshots', 'baseline.json')
+    baseline = json.load(open(bl_path, encoding='utf-8')) if os.path.exists(bl_path) else {}
+    fixed = apply_baseline(findings, baseline) if baseline else []
+    if not baseline:
+        for f in findings:
+            f['state'] = 'new'
+
     json.dump({'generatedAt': datetime.datetime.now().isoformat(timespec='seconds'),
+               'baseline': bool(baseline), 'fixedSinceBaseline': fixed,
                'findings': findings},
               open(os.path.join(here, 'snapshots', 'findings.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=2)
-    report = render(findings, code, ds, cfg, chrome)
-    rp = os.path.join(here, 'reports', 'REPORT.md')
-    open(rp, 'w', encoding='utf-8').write(report + '\n')
-    high = sum(1 for f in findings if f['sev'] == 'high')
-    print('расхождений: %d (важных %d) → reports/REPORT.md' % (len(findings), high))
-    return 1 if high else 0
+
+    sarif_path = opt('--sarif')
+    if sarif_path:
+        payload = to_sarif(findings, code, cfg, include_baselined='--sarif-all' in args)
+        json.dump(payload, open(sarif_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+        print('SARIF → %s (%d результатов%s)'
+              % (sarif_path, len(payload['runs'][0]['results']),
+                 ', включая базовую линию' if '--sarif-all' in args else ', только новые'))
+
+    report = render(findings, code, ds, cfg, chrome, baseline, fixed)
+    open(os.path.join(here, 'reports', 'REPORT.md'), 'w', encoding='utf-8').write(report + '\n')
+
+    new_n = sum(1 for f in findings if f.get('state') == 'new')
+    base_n = len(findings) - new_n
+    parts = ['новых %d' % new_n]
+    if baseline:
+        parts.append('в базовой линии %d' % base_n)
+    if fixed:
+        parts.append('исправлено %d' % len(fixed))
+    print('расхождений: %d (%s) → reports/REPORT.md' % (len(findings), ', '.join(parts)))
+    return decide_exit(findings, fail_on)
 
 
 if __name__ == '__main__':

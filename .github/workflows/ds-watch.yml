@@ -1,0 +1,160 @@
+name: DS watch
+
+# Три способа проснуться:
+#   schedule  — опрос по расписанию, основной режим и страховка от пропущенного события
+#   dispatch  — руками из вкладки Actions
+#   repository_dispatch — событие LIBRARY_PUBLISH, доставленное реле из Figma
+on:
+  schedule:
+    - cron: '0 6 * * 1-5'      # будни, 06:00 UTC — до начала рабочего дня
+  workflow_dispatch:
+    inputs:
+      fail-on:
+        description: 'Что считать провалом: new | high | medium | low | never'
+        default: 'new'
+      accept-baseline:
+        description: 'Принять текущее состояние за базовую линию'
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [figma-library-publish]
+
+permissions:
+  contents: read
+  security-events: write        # для выгрузки SARIF в code scanning
+  issues: write                 # для отчёта в issue
+
+concurrency:
+  group: ds-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Конфиг из секрета
+        env:
+          NW_CONFIG: ${{ secrets.NW_CONFIG }}
+        run: |
+          if [ -z "$NW_CONFIG" ]; then
+            echo "::error::Нет секрета NW_CONFIG — в нём лежит config.json с ключами Figma"
+            exit 1
+          fi
+          printf '%s' "$NW_CONFIG" > config.json
+          python3 -c "import json;json.load(open('config.json'));print('config.json принят')"
+
+      - name: Событие из Figma в очередь
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          printf '%s' '${{ toJSON(github.event.client_payload) }}' > /tmp/event.json
+          python3 bin/watch.py --event /tmp/event.json
+          python3 bin/watch.py --drain
+
+      - name: Опрос дизайн-системы
+        if: github.event_name != 'repository_dispatch'
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+        run: python3 bin/watch.py
+
+      - name: Решение — будить бота или нет
+        id: trigger
+        run: |
+          CHANGED=$(python3 -c "import json;print(json.load(open('snapshots/trigger.json'))['changed'])")
+          NEEDS=$(python3 -c "import json;print(json.load(open('snapshots/trigger.json'))['needsVariableRefresh'])")
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          echo "needs_vars=$NEEDS"  >> $GITHUB_OUTPUT
+          python3 -c "
+          import json
+          t = json.load(open('snapshots/trigger.json'))
+          print('Источник:', t['source'])
+          print('Изменения:', '; '.join(t['reasons']))
+          "
+
+      - name: Слепок ДС из кэша
+        uses: actions/cache/restore@v4
+        with:
+          path: snapshots/ds-latest.json
+          key: ds-snapshot-${{ hashFiles('config.json') }}
+          restore-keys: ds-snapshot-
+
+      # Значения переменных снять из CI нельзя: Variables REST API — только Enterprise.
+      # Поэтому если публикация задела переменные, слепок помечается несвежим,
+      # и бот честно пишет об этом в отчёте вместо того, чтобы сверять со старым.
+      - name: Пометить слепок несвежим, если поехали переменные
+        if: steps.trigger.outputs.needs_vars == 'True'
+        run: |
+          python3 - <<'PY'
+          import json, os
+          p = 'snapshots/ds-latest.json'
+          if os.path.exists(p):
+              d = json.load(open(p, encoding='utf-8'))
+              d['variablesComplete'] = False
+              d['variablesNote'] = ('Публикация библиотеки задела переменные, а снять их значения '
+                                    'из CI нельзя — Variables REST API только для Enterprise. '
+                                    'Слепок помечен несвежим: нужен прогон агента с Figma MCP.')
+              json.dump(d, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+              print('слепок помечен несвежим')
+          PY
+
+      - name: Сверка
+        id: diff
+        continue-on-error: true
+        run: |
+          python3 bin/nw.py --fail-on "${{ inputs.fail-on || 'new' }}" --sarif nw.sarif
+
+      - name: Находки в code scanning
+        if: always() && hashFiles('nw.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: nw.sarif
+          category: ds-helper
+
+      - name: Отчёт в сводку прогона
+        if: always()
+        run: |
+          {
+            echo "## Night Watch — сверка с дизайн-системой"
+            echo
+            sed -n '1,60p' reports/REPORT.md
+            echo
+            echo "<details><summary>Полный отчёт</summary>"
+            echo
+            cat reports/REPORT.md
+            echo
+            echo "</details>"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Артефакты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ds-report
+          path: |
+            reports/
+            snapshots/findings.json
+            snapshots/trigger.json
+          retention-days: 30
+
+      - name: Принять базовую линию
+        if: inputs.accept-baseline
+        run: |
+          python3 bin/nw.py --accept
+          echo "Базовая линия обновлена. Закоммитьте snapshots/baseline.json." >> $GITHUB_STEP_SUMMARY
+
+      - name: Сохранить слепок в кэш
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: snapshots/ds-latest.json
+          key: ds-snapshot-${{ hashFiles('config.json') }}-${{ github.run_id }}
+
+      - name: Итог
+        if: always()
+        run: |
+          if [ "${{ steps.diff.outcome }}" = "failure" ]; then
+            echo "::warning::Появились новые расхождения с дизайн-системой — смотрите Security → Code scanning"
+            exit 1
+          fi
+          echo "Новых расхождений нет"

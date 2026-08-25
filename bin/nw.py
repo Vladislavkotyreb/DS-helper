@@ -40,8 +40,8 @@ def load_config(here):
         raise SystemExit(2)
 
 
-def run(script):
-    r = subprocess.run([sys.executable, os.path.join(HERE, 'bin', script)],
+def run(script, extra=None):
+    r = subprocess.run([sys.executable, os.path.join(HERE, 'bin', script)] + (extra or []),
                        cwd=HERE, capture_output=True, text=True)
     sys.stdout.write(r.stdout)
     if r.returncode not in (0, 1):
@@ -120,6 +120,26 @@ def main():
     args = sys.argv[1:]
     cfg = load_config(HERE)
 
+    if '--accept' in args:
+        fp_src = os.path.join(HERE, 'snapshots', 'findings.json')
+        if not os.path.exists(fp_src):
+            print('нет snapshots/findings.json — сначала прогон'); return 2
+        sys.path.insert(0, os.path.join(HERE, 'bin'))
+        import diff as _diff
+        data = json.load(open(fp_src, encoding='utf-8'))
+        keys = sorted({_diff.fp(f) for f in data['findings']})
+        json.dump({'acceptedAt': datetime.datetime.now().isoformat(timespec='seconds'),
+                   'count': len(keys),
+                   'note': ('Расхождения, которые были на момент включения бота. '
+                            'Он их помнит и не считает провалом, но следит, чтобы список не рос. '
+                            'Чтобы вычеркнуть исправленное — прогнать и повторить --accept.'),
+                   'fingerprints': keys},
+                  open(os.path.join(HERE, 'snapshots', 'baseline.json'), 'w', encoding='utf-8'),
+                  ensure_ascii=False, indent=2)
+        print('базовая линия принята: %d расхождений' % len(keys))
+        print('дальше прогон падает только на новых — порог меняется --fail-on')
+        return 0
+
     if '--promote' in args:
         src = os.path.join(HERE, 'snapshots', 'ds-latest.json')
         dst = os.path.join(HERE, 'snapshots', 'ds-previous.json')
@@ -140,7 +160,11 @@ def main():
         print('   сканирую продовые источники')
         run('scan_src.py')
     print('2. сверяю с дизайн-системой')
-    run('diff.py')
+    passthru = []
+    for flag in ('--fail-on', '--sarif'):
+        if flag in args:
+            passthru += [flag, args[args.index(flag) + 1]]
+    diff_code = run('diff.py', passthru)
     print('3. ревью изменений в ДС')
     run('review.py')
 
@@ -161,8 +185,8 @@ def main():
     print()
     print('reports/REPORT.md      — расхождения ДС и прототипов')
     print('reports/DS-REVIEW.md   — что изменилось в самой ДС')
-    print('reports/changelog-card.json — карточка для change-log (узел 12929:4)')
-    return 0
+    print('reports/changelog-card.json — карточка для change-log')
+    return diff_code
 
 
 if __name__ == '__main__':
