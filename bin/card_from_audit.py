@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Собрать карточку change-log из результатов аудита, а не из дельты слепков.
+Build a change-log card from audit results rather than from a snapshot delta.
 
-Нужно, когда сама ДС не менялась, но аудит принёс для неё новое: найденные дефекты
-и приведение прототипов к токенам. Дельта слепков тут пустая, а писать есть о чём.
+Useful when the DS itself did not change, yet the audit brought news for it:
+defects found, prototypes migrated to tokens. The snapshot delta is empty,
+but there is something to write.
 
-    python3 bin/card_from_audit.py "Исправлено: пункт" "Исправлено: ещё пункт"
+    python3 bin/card_from_audit.py "Fixed: item" "Fixed: another item"
 
-Кладёт reports/changelog-card.json в том же формате, что и review.py.
+Writes reports/changelog-card.json in the same format review.py uses.
 """
 import json, os, sys, datetime, collections
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from i18n import t
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from review import card_payload, SECTIONS
 
@@ -23,35 +27,36 @@ def main():
 
     sections = collections.OrderedDict((s, []) for s in SECTIONS)
 
-    # «Исправлено» приходит аргументами: это факты о правках, машина их не выдумывает
+    # The "Fixed" items arrive as arguments: they are facts about edits, never invented
     for arg in sys.argv[1:]:
         sec, _, text = arg.partition(':')
         sec, text = sec.strip(), text.strip()
         if sec in sections and text:
             sections[sec].append(text)
 
-    # «В разработке» — дефекты самой ДС, найденные сверкой.
-    # Неразобранные матрицы схлопываем в одну строку: карточка change-log должна
-    # читаться, а не быть простынёй на двадцать пунктов.
+    # The last rubric holds DS defects found by the check. Unresolved matrices
+    # collapse into one line: a change-log card must stay readable, not become
+    # a twenty-item wall.
     vague = []
     for f in fnd:
         if f['cat'] != 'DS_DEFECT':
             continue
-        if 'слепок не разбирал' in f['msg']:
+        if 'слепок не разбирал' in f['msg'] or 'did not resolve which cells' in f['msg']:
             import re as _re
-            m = _re.search(r'нарисовано (\d+) из (\d+)', f['msg'])
+            m = _re.search(r'нарисовано (\d+) из (\d+)|(\d+) of (\d+) drawn', f['msg'])
             if m:
-                vague.append('%s %s/%s' % (f['subject'], m.group(1), m.group(2)))
+                a, b = (m.group(1) or m.group(3)), (m.group(2) or m.group(4))
+                vague.append('%s %s/%s' % (f['subject'], a, b))
             continue
-        msg = f['msg'].replace('матрица неполная: ', '')
-        sections['В разработке'].append('%s: %s' % (f['subject'], msg))
+        msg = f['msg'].replace('матрица неполная: ', '').replace('variant matrix incomplete: ', '')
+        sections[SECTIONS[4]].append('%s: %s' % (f['subject'], msg))
     if vague:
-        sections['В разработке'].append(
-            'Неполные матрицы ещё у %d компонентов: %s' % (len(vague), ', '.join(vague)))
+        sections[SECTIONS[4]].append(
+            t('Неполные матрицы ещё у %d компонентов: %s', 'Incomplete matrices in %d more components: %s') % (len(vague), ', '.join(vague)))
     for issue in (ds.get('knownDsIssues') or []):
-        sections['В разработке'].append(issue)
+        sections[SECTIONS[4]].append(issue)
 
-    # схлопнуть повторы, сохранив порядок
+    # deduplicate, keep order
     for k, v in sections.items():
         seen, out = set(), []
         for i in v:
@@ -66,9 +71,9 @@ def main():
     payload['source'] = 'audit'
     p = os.path.join(here, 'reports', 'changelog-card.json')
     json.dump(payload, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
-    print('карточка от %s: %s' % (today, ', '.join(
+    print(t('карточка от %s: %s', 'card for %s: %s') % (today, ', '.join(
         '%s %d' % (k, len(v)) for k, v in sections.items() if v)))
-    print('символов в теле: %d, диапазонов стилей: %d' % (len(payload['body']), len(payload['ranges'])))
+    print(t('символов в теле: %d, диапазонов стилей: %d', 'body chars: %d, style ranges: %d') % (len(payload['body']), len(payload['ranges'])))
     return 0
 
 

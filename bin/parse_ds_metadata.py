@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Разбор XML-дампа get_metadata со страницы компонентов ДС в матрицу вариантов.
+Parses a get_metadata XML dump of a DS components page into variant matrices.
 
-Вход  : snapshots/raw/<page>.xml — то, что вернул get_metadata(fileKey, nodeId страницы)
-Выход : JSON-фрагмент components[] для ds-latest.json
+Input : snapshots/raw/<page>.xml — what get_metadata(fileKey, page nodeId) returned
+Output: a components[] JSON fragment for ds-latest.json
 
-Опирается на то, что варианты компонент-сета лежат как
+Relies on component-set variants being laid out as
 <symbol name="Size=Medium, Type=Primary, State=Hover">
-внутри <frame name="ИмяКомпонента">.
+inside <frame name="ComponentName">.
 """
 import json, re, sys, collections
 
@@ -17,7 +17,7 @@ RE_VARIANT = re.compile(r'^\s*([A-Za-z][\w \-]*)\s*=\s*(.+?)\s*$')
 
 
 def parse(xml):
-    """Возвращает {имя компонента: {'variants':[{prop:val}], 'nodeId':..}}."""
+    """Returns {component name: {'variants':[{prop:val}], 'nodeId':..}}."""
     lines = xml.split('\n')
     stack = []          # [(indent, kind, name)]
     comps = collections.OrderedDict()
@@ -56,7 +56,7 @@ def summarise(comps):
                 props.setdefault(k, [])
                 if val not in props[k]:
                     props[k].append(val)
-        # полнота матрицы: сколько ячеек из декартова произведения реально нарисовано
+        # matrix completeness: how many cells of the cartesian product are drawn
         total = 1
         for vals in props.values():
             total *= len(vals)
@@ -76,7 +76,7 @@ def summarise(comps):
                     walk(i + 1, acc)
                 del acc[keys[i]]
             walk(0, {})
-        # опечатки регистра в значениях свойств (link / Link)
+        # casing mismatches in property values (link / Link)
         case_clashes = {}
         for k, vals in props.items():
             groups = collections.defaultdict(list)

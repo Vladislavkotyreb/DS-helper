@@ -1,15 +1,15 @@
-// Реле Figma → GitHub.
+// Figma → GitHub relay.
 //
-// Figma шлёт POST на голый URL и не умеет ставить произвольные заголовки,
-// а repository_dispatch у GitHub требует Authorization. Поэтому между ними
-// нужен посредник. Это он: тридцать строк, разворачивается за минуту.
+// Figma POSTs to a bare URL and cannot set custom headers, while GitHub's
+// repository_dispatch demands Authorization. Hence a middleman: thirty lines,
+// deployed in a minute.
 //
-// Переменные окружения воркера:
-//   NW_WEBHOOK_PASSCODE  — тот же секрет, что отдан Figma при создании вебхука
-//   GITHUB_TOKEN         — токен с правом repo (для repository_dispatch)
-//   GITHUB_REPO          — например Vladislavkotyreb/DS-helper
+// Worker environment:
+//   NW_WEBHOOK_PASSCODE  — the same secret given to Figma when creating the webhook
+//   GITHUB_TOKEN         — a token with repo scope (for repository_dispatch)
+//   GITHUB_REPO          — e.g. Vladislavkotyreb/DS-helper
 //
-// Секреты держать в Worker Secrets, не в коде.
+// Keep secrets in Worker Secrets, never in code.
 
 export default {
   async fetch(request, env) {
@@ -24,12 +24,12 @@ export default {
       return new Response('bad json', { status: 400 });
     }
 
-    // Общий секрет: без него любой желающий мог бы будить наш пайплайн.
+    // Shared secret: without it anyone could wake our pipeline.
     if (!env.NW_WEBHOOK_PASSCODE || payload.passcode !== env.NW_WEBHOOK_PASSCODE) {
       return new Response('forbidden', { status: 403 });
     }
 
-    // PING приходит сразу после создания вебхука — просто подтверждаем.
+    // A PING arrives right after webhook creation — just acknowledge it.
     if (payload.event_type === 'PING') {
       return new Response('pong', { status: 200 });
     }
@@ -38,7 +38,7 @@ export default {
       return new Response('ignored', { status: 200 });
     }
 
-    // Секрет дальше не передаём: GitHub он не нужен и в логах ему не место.
+    // The secret goes no further: GitHub does not need it and logs must not see it.
     const { passcode, ...clean } = payload;
 
     const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
@@ -56,7 +56,7 @@ export default {
     });
 
     if (!res.ok) {
-      // Figma повторит доставку, если ответить не-2xx.
+      // Figma retries delivery on a non-2xx response.
       return new Response(`github ${res.status}`, { status: 502 });
     }
     return new Response('dispatched', { status: 200 });

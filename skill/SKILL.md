@@ -5,6 +5,11 @@ description: Ночной библиотекарь дизайн-системы R
 
 # Night Watch R4S Librarian
 
+> **English readers:** this is a live agent role from a real project (R4S), kept
+> as a working example of how to describe DS-snapshot taking to an agent with
+> Figma MCP. The recipes in `references/` are mostly portable; swap the names,
+> keys and node ids for your own.
+>
 > Это живая роль конкретного проекта (R4S), лежит здесь как **образец**: как
 > описать агенту снятие слепка вашей ДС, грабли Figma MCP и запись в change-log.
 > Для своего проекта скопируйте и замените имена, ключи и узлы на свои —

@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Регистрация вебхука LIBRARY_PUBLISH на файле дизайн-системы.
+Registers a LIBRARY_PUBLISH webhook on the design-system file.
 
     python3 bin/webhook.py list
-    python3 bin/webhook.py create https://ваше-реле/figma
+    python3 bin/webhook.py create https://your-relay/figma
     python3 bin/webhook.py delete <id>
 
-Вебхук на уровне файла заводится правом «Can edit» — организация не нужна.
-Токен читается из FIGMA_TOKEN, секрет вебхука — из NW_WEBHOOK_PASSCODE.
-Ни то, ни другое не печатается.
+A file-level webhook takes only "Can edit" — no organisation required.
+The token comes from FIGMA_TOKEN, the webhook secret from NW_WEBHOOK_PASSCODE.
+Neither is ever printed.
 
-Figma шлёт POST на голый URL и не умеет ставить произвольные заголовки, поэтому
-напрямую в GitHub она достучаться не может: repository_dispatch требует Authorization.
-Отсюда реле — см. relay/cloudflare-worker.js.
+Figma POSTs to a bare URL and cannot set custom headers, so it cannot reach
+GitHub directly: repository_dispatch demands Authorization. Hence the relay —
+see relay/cloudflare-worker.js.
 """
 import json, os, sys, urllib.request, urllib.error
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from i18n import t
 
 API = 'https://api.figma.com/v2'
 
@@ -40,7 +43,7 @@ def main():
     key = cfg['figma']['designSystemFileKey']
     token = os.environ.get('FIGMA_TOKEN')
     if not token:
-        sys.stderr.write('Нет FIGMA_TOKEN\n'); return 2
+        sys.stderr.write(t('Нет FIGMA_TOKEN\n', 'FIGMA_TOKEN is not set\n')); return 2
 
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'list'
 
@@ -48,7 +51,7 @@ def main():
         r = call('GET', '/webhooks?context=file&context_id=%s' % key, token)
         hooks = r.get('webhooks', r if isinstance(r, list) else [])
         if not hooks:
-            print('вебхуков на файле нет')
+            print(t('вебхуков на файле нет', 'no webhooks on this file'))
         for h in hooks:
             print('%s  %-16s %-8s %s' % (h.get('id'), h.get('event_type'),
                                          h.get('status'), h.get('endpoint')))
@@ -56,30 +59,29 @@ def main():
 
     if cmd == 'create':
         if len(sys.argv) < 3:
-            sys.stderr.write('нужен URL реле\n'); return 2
+            sys.stderr.write(t('нужен URL реле\n', 'relay URL required\n')); return 2
         passcode = os.environ.get('NW_WEBHOOK_PASSCODE')
         if not passcode:
-            sys.stderr.write(
-                'Нет NW_WEBHOOK_PASSCODE.\n'
-                'Это общий секрет: реле по нему отличает запросы Figma от посторонних.\n'
-                'Придумайте строку, положите её и сюда, и в переменные реле.\n')
+            sys.stderr.write(t(
+                'Нет NW_WEBHOOK_PASSCODE.\nЭто общий секрет: реле по нему отличает запросы Figma от посторонних.\nПридумайте строку, положите её и сюда, и в переменные реле.\n',
+                'NW_WEBHOOK_PASSCODE is not set.\nIt is a shared secret: the relay uses it to tell Figma apart from strangers.\nInvent a string and put it both here and into the relay env.\n'))
             return 2
         r = call('POST', '/webhooks', token, {
             'event_type': 'LIBRARY_PUBLISH', 'context': 'file', 'context_id': key,
             'endpoint': sys.argv[2], 'passcode': passcode,
             'description': 'Night Watch DS-helper'})
-        print('вебхук создан: %s' % r.get('id'))
-        print('Figma пришлёт PING сразу — реле должно ответить 200')
+        print(t('вебхук создан: %s', 'webhook created: %s') % r.get('id'))
+        print(t('Figma пришлёт PING сразу — реле должно ответить 200', 'Figma sends a PING immediately — the relay must answer 200'))
         return 0
 
     if cmd == 'delete':
         if len(sys.argv) < 3:
-            sys.stderr.write('нужен id вебхука\n'); return 2
+            sys.stderr.write(t('нужен id вебхука\n', 'webhook id required\n')); return 2
         call('DELETE', '/webhooks/%s' % sys.argv[2], token)
-        print('вебхук удалён')
+        print(t('вебхук удалён', 'webhook deleted'))
         return 0
 
-    sys.stderr.write('команды: list | create <url> | delete <id>\n')
+    sys.stderr.write(t('команды: list | create <url> | delete <id>\n', 'commands: list | create <url> | delete <id>\n'))
     return 2
 
 

@@ -1,14 +1,16 @@
 {
   "project": "MyDS",
-  "projectNote": "Имя проекта — попадает в заголовки отчётов и справку телеграм-бота.",
+  "projectNote": "Project name — appears in report headers and the Telegram bot help.",
+  "lang": "en",
+  "langNote": "Report and CLI language: en or ru. Switching later renames a few finding subjects — re-run --accept afterwards.",
   "figma": {
     "designSystemFileKey": "<FILE_KEY из URL файла дизайн-системы>",
     "designSystemName": "My Design System",
     "changeLogNode": "",
-    "changeLogNodeNote": "Необязательно: node-id секции change-log, куда агент пишет карточки ревью."
+    "changeLogNodeNote": "Optional: node-id of the change-log section where the agent writes review cards."
   },
   "prototypesRoot": "prototypes",
-  "prototypesRootNote": "Где лежит вёрстка: papка prototypes/ рядом с ботом (режим «всё в одном репо») или путь на диске (режим «бот рядом с папкой»).",
+  "prototypesRootNote": "Where the markup lives: a prototypes/ folder next to the bot (single-repo mode) or an absolute path on disk (bot-beside-a-folder mode).",
   "prototypes": [
     {
       "id": "main-app",
@@ -18,11 +20,11 @@
       "accent": ""
     }
   ],
-  "prototypesNote": "Каждая папка с вёрсткой — запись здесь. tier: current — проверяется целиком; legacy — только сырые значения, без требований достроить. theme — с каким режимом переменных сверять значения (бот перепроверит по фактам). accent — если в ДС есть режимы акцентов; пусто, если нет.",
+  "prototypesNote": "One entry per markup folder. tier: current — fully checked; legacy — raw values only, no demands to build out states. theme — which variable mode to compare values against (the bot re-verifies against facts). accent — if your DS has accent modes; empty otherwise.",
   "watchlist": [],
-  "watchlistNote": "Имена компонентов ДС, отсутствие которых в вёрстке стоит показывать. Пусто — проверяются только реально используемые.",
+  "watchlistNote": "DS component names whose absence from the code is worth reporting. Empty — only components actually used are checked.",
   "componentMap": {},
-  "componentMapNote": "CSS-класс → имя компонента ДС, для кода без комментариев-сцепок: {\".btn\": \"Button\", \".chip\": \"Chip\"}.",
+  "componentMapNote": "CSS class → DS component name, for code without link comments: {\".btn\": \"Button\", \".chip\": \"Chip\"}.",
   "stateMap": {
     "Default": [
       "base"
@@ -73,23 +75,23 @@
       "[aria-expanded=\"true\"]"
     ]
   },
-  "stateMapNote": "Состояние ДС → какие селекторы считаются его реализацией. Дефолты покрывают обычные конвенции; дополняйте своими классами.",
+  "stateMapNote": "DS state → selectors that count as its implementation. Defaults cover common conventions; extend with your own classes.",
   "stateMapByComponent": {},
-  "stateMapByComponentNote": "Переопределения там, где одно слово значит разное: у Button «Active» — нажатие, у Tab — выбранная вкладка. См. examples/config-r4s.json.",
+  "stateMapByComponentNote": "Overrides for words that mean different things: on Button \"Active\" is a press, on Tab — the selected tab. See examples/config-r4s.json.",
   "statesProvidedByWrapper": [
     "Error",
     "Filled",
     "Opened"
   ],
-  "statesProvidedByWrapperNote": "Состояния, живущие на обёртке, а не на самом компоненте (.is-invalid на .field) — ищутся по всему прототипу.",
+  "statesProvidedByWrapperNote": "States living on a wrapper rather than the component itself (.is-invalid on .field) — searched across the whole prototype.",
   "outOfScope": {
     "selectorPrefixes": []
   },
-  "outOfScopeNote": "Селекторы чужого хрома (виджеты платформы, встраиваемый портал) — считаются отдельно и дрейфом ДС не признаются.",
+  "outOfScopeNote": "Selectors of foreign chrome (platform widgets, an embedded portal) — counted separately, never treated as DS drift.",
   "foreignVariablePrefixes": {},
-  "foreignVariablePrefixesNote": "Префиксы переменных чужих китов, приехавших со скопированными компонентами: {\"Core/\": \"чужой кит такой-то\"}.",
+  "foreignVariablePrefixesNote": "Variable prefixes of foreign kits that arrived with copied components: {\"Core/\": \"some foreign kit\"}.",
   "knownGaps": [],
-  "knownGapsNote": "Чего в макетах заведомо нет — чтобы бот не выдавал это за ошибку.",
+  "knownGapsNote": "What the mockups are known to lack — so the bot does not report it as an error.",
   "failOn": "new",
-  "failOnNote": "Провал прогона: new | high | medium | low | never."
+  "failOnNote": "Run failure threshold: new | high | medium | low | never."
 }

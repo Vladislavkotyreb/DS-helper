@@ -1,126 +1,139 @@
-# Быстрая интеграция в ваш репозиторий
+# Quick integration into your repository
 
-Бот сверяет вёрстку с дизайн-системой в Figma и падает в CI, только когда
-появляются **новые** расхождения. Нужен Python 3 из системы — зависимостей нет.
+The bot checks your markup against a Figma design system and fails CI only when
+**new** drift appears. System Python 3, zero dependencies.
 
-Всё ниже — про режим «макеты и бот в одном репозитории»: он даёт CI на каждый
-пуш и не требует ничего держать запущенным. Второй режим — бот рядом с папкой
-на диске — отличается только `prototypesRoot` в конфиге.
+Everything below covers the "mockups and bot in one repository" mode: CI on
+every push, nothing to keep running. The other mode — bot next to a folder on
+disk — differs only in `prototypesRoot`.
 
-## Шаг 1. Скопировать бота
+## Step 1. Copy the bot
 
-Из этого репозитория в ваш:
+From this repository into yours:
 
 ```
-bin/                                  движок целиком
-.github/workflows/prototypes-check.yml   сверка на каждый пуш и PR
-config.example.json                   заготовка настройки
+bin/                                     the whole engine
+.github/workflows/prototypes-check.yml   check on every push and PR
+config.example.json                      configuration template
 ```
 
-Опционально: `.github/workflows/ds-watch.yml` (опрос Figma по расписанию),
-`bin/tgbot.py` уже входит в bin/ (телеграм), `skill/` (роль для агента с Figma MCP).
+Optional: `.github/workflows/ds-watch.yml` (scheduled Figma polling),
+`bin/tgbot.py` is already inside bin/ (Telegram), `skill/` (a role for an
+agent with Figma MCP).
 
-## Шаг 2. Конфиг
+## Step 2. Configuration
 
 ```bash
 cp config.example.json config.json
 ```
 
-Минимум, который надо заполнить:
+The minimum you must fill in:
 
-- `figma.designSystemFileKey` — из URL файла ДС: `figma.com/design/<ВОТ_ЭТО>/…`
-- `prototypesRoot` — папка с вёрсткой, обычно `"prototypes"`
-- `prototypes[]` — по записи на каждую папку с макетом
+- `figma.designSystemFileKey` — from the DS file URL: `figma.com/design/<THIS>/…`
+- `prototypesRoot` — the folder with your markup, usually `"prototypes"`
+- `prototypes[]` — one entry per mockup folder
 
-Остальные ключи имеют рабочие дефолты; у каждого — поле `*Note` с объяснением.
-Живой пример настроенного проекта — `examples/config-r4s.json`.
+Everything else has working defaults; every key carries a `*Note` field
+explaining it. A fully configured real project lives in
+`examples/config-r4s.json`.
 
-В приватном репозитории `config.json` коммитится. В публичном — нет
-(ключи файлов Figma), тогда он передаётся секретом `NW_CONFIG`.
+Reports are English by default; set `"lang": "ru"` for Russian. Switching the
+language later renames a few finding subjects — re-run `--accept` afterwards.
 
-## Шаг 3. Сцепка кода с дизайн-системой
+In a private repository `config.json` is committed. In a public one it is not
+(Figma file keys) — pass it via the `NW_CONFIG` secret instead.
 
-Бот ничего не угадывает — он читает сцепку, которую вы держите в коде.
-Это главная конвенция, всё остальное — механика.
+## Step 3. Linking code to the design system
 
-**Токены.** Хвостовой комментарий у CSS-переменной — имя Figma Variable:
+The bot guesses nothing — it reads the link you keep in the code itself.
+This is the one real convention; the rest is machinery.
+
+**Tokens.** A trailing comment on a CSS variable names the Figma Variable:
 
 ```css
 --color-text-primary: #04141f;   /* Color/Text/Default/Primary */
 ```
 
-По нему сверяются значения: разошлось с Figma — это находка `TOKEN_VALUE_DRIFT`.
+Values are compared through it: drift from Figma becomes a `TOKEN_VALUE_DRIFT`
+finding.
 
-**Компоненты.** Заголовок секции в CSS — имя компонента ДС:
+**Components.** A CSS section header names the DS component:
 
 ```css
 /* ---------- Button ---------- */
 .btn { … }
 ```
 
-По нему проверяется покрытие состояний: если у компонента в Figma есть
-`State=Disabled`, а в секции нет ни одного disabled-селектора — находка `STATE_GAP`.
+State coverage is checked through it: if Figma draws `State=Disabled` and the
+section has no disabled selector — that is a `STATE_GAP`.
 
-**Существующий код без комментариев** сцепляется через `componentMap` в конфиге
-(класс → компонент) и сопоставлением значений: сырой `#04141f` при токене
-с тем же значением — находка `RAW_VALUE` с готовой заменой.
+**Existing code without comments** is linked via `componentMap` in the config
+(class → component) and by value matching: a raw `#04141f` next to a token
+with the same value becomes a `RAW_VALUE` finding with a ready substitution.
 
-## Шаг 4. Слепок дизайн-системы
+## Step 4. The design-system snapshot
 
-Единственный шаг, которому нужен агент с Figma MCP (Claude Code с плагином
-Figma): значения переменных со всеми режимами REST-API отдаёт только
-на Enterprise-тарифе, а Plugin API через MCP — на любом.
+The only step that needs an agent with Figma MCP (Claude Code with the Figma
+plugin): variable values with all their modes are Enterprise-only over REST,
+but the Plugin API through MCP serves them on any plan.
 
-Попросите агента: «сними слепок дизайн-системы для night-watch» и дайте ему
-`skill/` из этого репозитория — там рецепт целиком (`references/figma-pull.md`).
-Результат — `snapshots/ds-latest.json`, он коммитится. CI сам слепок не снимает,
-только сверяет с ним; обновлять — по факту публикаций библиотеки.
+Ask your agent to "take a design-system snapshot for night-watch" and hand it
+`skill/` from this repository — the full recipe is in
+`references/figma-pull.md`. The result is `snapshots/ds-latest.json`, and it
+gets committed. CI never takes snapshots itself — it only compares against
+one; refresh it when the library is published.
 
-Слепок обязан честно помечать свою неполноту (`variablesComplete: false`) —
-тогда отчёт понижает формулировки вместо ложных тревог.
+A snapshot must honestly mark what it does not know
+(`variablesComplete: false`) — the report then softens its wording instead of
+raising false alarms.
 
-## Шаг 5. Первый прогон и базовая линия
+## Step 5. First run and the baseline
 
 ```bash
 python3 bin/nw.py --fail-on never
 ```
 
-Смотрите `reports/REPORT.md`. На существующем коде находок будут сотни —
-это нормально. Примите их за точку отсчёта:
+Read `reports/REPORT.md`. On existing code there will be hundreds of findings —
+that is normal. Accept them as the starting point:
 
 ```bash
 python3 bin/nw.py --accept
 ```
 
-Теперь бот падает только на **новых** расхождениях, а долг разбирается
-постепенно. Закоммитьте `config.json`, `snapshots/ds-latest.json`
-и `snapshots/baseline.json` — и CI готов.
+From now on the bot fails only on **new** drift while the debt is paid down
+gradually. Commit `config.json`, `snapshots/ds-latest.json` and
+`snapshots/baseline.json` — CI is ready.
 
-## Шаг 6. Что увидят люди
+## Step 6. What people will see
 
-- **красный PR** — появились новые расхождения; какие — в сводке прогона
-- **сводка прогона** (страница запуска в Actions) — отчёт с `файл:строка`
-- **артефакт** `prototypes-report` — полный отчёт + `findings.json` машинно
-- **Security → Code scanning** — построчные аннотации; работает в публичных
-  репозиториях, приватным нужен Advanced Security (шаг в workflow уже мягкий)
+- **a red PR** — new drift appeared; details in the run summary
+- **the run summary** (Actions run page) — the report with `file:line`
+- **the artifact** `prototypes-report` — full report plus machine-readable
+  `findings.json`
+- **Security → Code scanning** — inline annotations; works in public repos,
+  private ones need Advanced Security (the workflow step is already soft)
 
-## Опционально
+## Optional
 
-**Расписание по Figma** — `ds-watch.yml` + секрет `FIGMA_TOKEN`: репозиторий
-сам замечает, что библиотеку публиковали, и помечает слепок несвежим.
+**Figma schedule** — `ds-watch.yml` + a `FIGMA_TOKEN` secret: the repository
+notices library publishes on its own and marks the snapshot stale.
 
-**Телеграм** — `bin/tgbot.py`: `/run`, `/report`, `/status` с телефона.
-Токен от @BotFather в `~/.night-watch.env`, список разрешённых чатов обязателен.
+**Telegram** — `bin/tgbot.py`: `/run`, `/report`, `/status` from your phone.
+Token from @BotFather in `~/.night-watch.env`; the allowed-chats list is
+mandatory.
 
-**Вебхук вместо опроса** — `bin/webhook.py` + `relay/cloudflare-worker.js`:
-событие LIBRARY_PUBLISH будит CI сразу после публикации.
+**Webhook instead of polling** — `bin/webhook.py` +
+`relay/cloudflare-worker.js`: a LIBRARY_PUBLISH event wakes CI right after a
+publish.
 
-## Если бот шумит
+## If the bot is noisy
 
-- `/* nw:ignore причина */` в конце строки — осознанное отступление, причина в коде
-- `outOfScope` — чужой хром целиком вне аудита
-- `tier: "legacy"` — прототип не развивают: без требований достроить состояния
-- `stateMapByComponent` — когда «Active» у Tab значит «выбран», а у Button «нажат»
+- `/* nw:ignore reason */` at the end of a line — a deliberate exception,
+  reason kept in the code
+- `outOfScope` — foreign chrome excluded wholesale
+- `tier: "legacy"` — the prototype is frozen: no demands to build out states
+- `stateMapByComponent` — when "Active" means "selected" on Tab but "pressed"
+  on Button
 
-Ложная находка дороже пропущенной: если отчёт наполнится мусором, его перестанут
-читать. Все механизмы выше существуют ради этого.
+A false finding costs more than a missed one: fill the report with noise and
+people stop reading it. Every mechanism above exists for that reason.

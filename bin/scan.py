@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Night Watch DS-helper — сканер прототипов.
+Night Watch DS-helper — prototype scanner.
 
-Читает HTML/CSS/JS прототипов и строит code-snapshot.json:
-что объявлено, что используется, где сырые значения, какие состояния покрыты.
-Никакой сети. Детерминированный: один и тот же вход даёт один и тот же выход.
+Reads the prototypes' HTML/CSS/JS and builds code-snapshot.json: what is
+declared, what is used, where raw values live, which states are covered.
+No network. Deterministic: same input, same output.
 """
-import json, sys, os, re, sys, hashlib, datetime
+import json, os, re, sys, hashlib, datetime
 
-# ---------- регулярки ----------
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from i18n import t
+
+# ---------- regexes ----------
 RE_DECL       = re.compile(r'--([A-Za-z0-9_][A-Za-z0-9_-]*)\s*:\s*([^;{}]+?)\s*(?=;|$)')
 RE_LINE_COMM  = re.compile(r'/\*\s*(.*?)\s*\*/\s*$')
 RE_VAR_USE    = re.compile(r'var\(\s*--([A-Za-z0-9_][A-Za-z0-9_-]*)')
@@ -21,7 +24,7 @@ RE_PX         = re.compile(r'(?<![\w.-])(\d+(?:\.\d+)?)px\b')
 RE_CLASS_ATTR = re.compile(r'class\s*=\s*"([^"]*)"')
 RE_IGNORE     = re.compile(r'/\*\s*nw:ignore\s*(.*?)\s*\*/')
 
-# состояния, которые вообще умеем распознавать в селекторе
+# states we can recognise in a selector at all
 STATE_PATTERNS = [
     (':hover', ':hover'), (':active', ':active'),
     (':focus-visible', ':focus-visible'), (':focus', ':focus'),
@@ -45,14 +48,14 @@ STATE_PATTERNS = [
     ('[data-filled]', '[data-filled]'),
 ]
 
-# свойства, где длина — раскладка конкретного экрана, а не токен ДС
+# properties where a length is screen layout, not a DS token
 LAYOUT_ONLY_PROPS = {
     'width', 'max-width', 'min-width', 'height', 'max-height', 'min-height',
     'top', 'right', 'bottom', 'left', 'flex-basis', 'grid-template-columns',
     'grid-template-rows', 'background-position', 'background-size', 'transform',
     'stroke-width', 'outline-offset', 'letter-spacing',
 }
-# свойства, которые обязаны ходить в токены
+# properties that must go through tokens
 TOKENISED_PROPS = {
     'color', 'background', 'background-color', 'border', 'border-color', 'fill', 'stroke',
     'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
@@ -63,23 +66,22 @@ TOKENISED_PROPS = {
 
 
 def load_config(here):
-    """Конфиг с внятной ошибкой вместо трейсбека — это первое, что видит новый человек."""
+    """Config loading with a human error message — the first thing a newcomer sees."""
     p = os.path.join(here, 'config.json')
     if not os.path.exists(p):
-        sys.stderr.write(
-            'Нет config.json.\n'
-            'Скопируйте пример и впишите свои ключи Figma и пути к прототипам:\n\n'
-            '    cp config.example.json config.json\n\n')
+        sys.stderr.write(t(
+            'Нет config.json.\nСкопируйте пример и впишите свои ключи Figma и пути к прототипам:\n\n    cp config.example.json config.json\n\n',
+            'No config.json.\nCopy the example and fill in your Figma keys and prototype paths:\n\n    cp config.example.json config.json\n\n'))
         raise SystemExit(2)
     try:
         return json.load(open(p, encoding='utf-8'))
     except ValueError as e:
-        sys.stderr.write('config.json — битый JSON: %s\n' % e)
+        sys.stderr.write(t('config.json — битый JSON: %s\n', 'config.json is broken JSON: %s\n') % e)
         raise SystemExit(2)
 
 
 def norm_color(v):
-    """#ABC -> #aabbcc, #rrggbbff -> #rrggbb. Возвращает None, если не цвет."""
+    """#ABC -> #aabbcc, #rrggbbff -> #rrggbb. Returns None when not a colour."""
     v = v.strip().lower()
     m = re.fullmatch(r'#([0-9a-f]{3,8})', v)
     if not m:
@@ -95,7 +97,7 @@ def norm_color(v):
 
 
 def strip_comments(css):
-    """Убирает комментарии, сохраняя длину текста — чтобы номера строк не поехали."""
+    """Strips comments preserving text length — line numbers must not shift."""
     out, i, n = [], 0, len(css)
     while i < n:
         if css.startswith('/*', i):
@@ -113,7 +115,7 @@ def line_of(text, pos):
 
 
 def parse_tokens(css_text, fname, line_offset=0):
-    """Токены из :root. Значение + Figma-имя из хвостового комментария строки."""
+    """Tokens from :root. Value plus the Figma name from the trailing comment."""
     tokens = {}
     for ln, raw in enumerate(css_text.split('\n'), 1):
         decls = list(RE_DECL.finditer(raw))
@@ -123,7 +125,7 @@ def parse_tokens(css_text, fname, line_offset=0):
         figma_name = None
         if comm:
             c = comm.group(1).strip()
-            # Figma-имя выглядит как Color/Text/Default/Primary или Layout/Font-size/Text-M
+            # a Figma name looks like Color/Text/Default/Primary or Layout/Font-size/Text-M
             if re.fullmatch(r'[A-Za-zА-Яа-я0-9 _./+-]+', c) and '/' in c and len(c) < 80:
                 figma_name = c
         for k, d in enumerate(decls):
@@ -140,7 +142,7 @@ def parse_tokens(css_text, fname, line_offset=0):
 
 
 def split_sections(css_text):
-    """[(имя секции, node-ids, начало, конец)] по заголовочным комментариям /* ----- X ----- */"""
+    """[(section name, node-ids, start, end)] from header comments /* ----- X ----- */"""
     marks = []
     for m in re.finditer(r'/\*\s*-{5,}\s*(.+?)(?:\n|\*/)', css_text):
         title = m.group(1).strip().rstrip('-').strip()
@@ -316,8 +318,9 @@ def main():
         json.dump(snap, f, ensure_ascii=False, indent=2)
     for p in snap['prototypes']:
         if not p['exists']:
-            print('  %-24s — папки нет' % p['id']); continue
-        print('  %-24s токенов %3d · правил %4d · сырых %4d · секций %2d · узлов %3d'
+            print(t('  %-24s — папки нет', '  %-24s — folder missing') % p['id']); continue
+        print(t('  %-24s токенов %3d · правил %4d · сырых %4d · секций %2d · узлов %3d',
+                '  %-24s tokens %3d · rules %4d · raw %4d · sections %2d · nodes %3d')
               % (p['id'], len(p['tokens']), len(p['rules']),
                  len([r for r in p['raws'] if not r['outOfScope']]),
                  len(p['sections']), len(p['nodeRefs'])))

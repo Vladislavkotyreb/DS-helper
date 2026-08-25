@@ -1,8 +1,8 @@
 name: Prototypes check
 
-# Проверка макетов, живущих в этом же репозитории.
-# Запускается на каждый пуш и PR, который их трогает, — в отличие от ds-watch,
-# который следит за Figma по расписанию.
+# Checks the mockups living in this very repository.
+# Runs on every push and PR that touches them — unlike ds-watch,
+# which watches Figma on a schedule.
 on:
   push:
     branches: [main]
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       fail-on:
-        description: 'Порог провала: new | high | medium | low | never'
+        description: 'Failure threshold: new | high | medium | low | never'
         default: 'new'
 
 permissions:
@@ -29,43 +29,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Конфиг: закоммиченный в репо (приватный режим) либо из секрета.
-      - name: Конфиг
+      # Config: committed into the repo (private mode) or passed via secret.
+      - name: Config
         env:
           NW_CONFIG: ${{ secrets.NW_CONFIG }}
         run: |
           if [ -f config.json ]; then
-            echo "конфиг из репозитория"
+            echo "config from the repository"
           elif [ -n "$NW_CONFIG" ]; then
             printf '%s' "$NW_CONFIG" > config.json
-            echo "конфиг из секрета NW_CONFIG"
+            echo "config from the NW_CONFIG secret"
           else
-            echo "::error::Нет ни config.json в репо, ни секрета NW_CONFIG"
+            echo "::error::Neither config.json in the repo nor the NW_CONFIG secret"
             exit 1
           fi
           python3 -c "import json;json.load(open('config.json'))"
 
-      - name: Слепок ДС на месте?
+      - name: DS snapshot present?
         run: |
           if [ ! -f snapshots/ds-latest.json ]; then
-            echo "::error::Нет snapshots/ds-latest.json — его снимает агент с Figma MCP и коммитит в репо"
+            echo "::error::No snapshots/ds-latest.json — an agent with Figma MCP takes it and commits it"
             exit 1
           fi
           python3 -c "
           import json, datetime
           d = json.load(open('snapshots/ds-latest.json'))
-          print('слепок от', d.get('generatedAt','?')[:10],
-                '· переменных', len(d.get('variables',{})),
-                '· компонентов', len(d.get('components',[])))"
+          print('snapshot from', d.get('generatedAt','?')[:10],
+                '· variables', len(d.get('variables',{})),
+                '· components', len(d.get('components',[])))"
 
-      - name: Сверка
+      - name: Compare
         id: diff
         continue-on-error: true
         run: |
           python3 bin/nw.py --fail-on "${{ inputs.fail-on || 'new' }}" --sarif nw.sarif
 
-      # В приватном репозитории без Advanced Security выгрузка падает — не роняем прогон
-      - name: Находки в code scanning (нужен Advanced Security)
+      # Without Advanced Security the upload fails in private repos — do not fail the run
+      - name: Findings to code scanning (needs Advanced Security)
         if: always() && hashFiles('nw.sarif') != ''
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
@@ -73,22 +73,22 @@ jobs:
           sarif_file: nw.sarif
           category: prototypes
 
-      - name: Сводка
+      - name: Summary
         if: always()
         run: |
           {
-            echo "## Сверка макетов с дизайн-системой"
+            echo "## Mockups vs design system"
             echo
             sed -n '1,40p' reports/REPORT.md
             echo
-            echo "<details><summary>Полный отчёт</summary>"
+            echo "<details><summary>Full report</summary>"
             echo
             cat reports/REPORT.md
             echo
             echo "</details>"
           } >> $GITHUB_STEP_SUMMARY
 
-      - name: Отчёт артефактом
+      - name: Report as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -98,11 +98,11 @@ jobs:
             snapshots/findings.json
           retention-days: 30
 
-      - name: Итог
+      - name: Verdict
         if: always()
         run: |
           if [ "${{ steps.diff.outcome }}" = "failure" ]; then
-            echo "::error::Новые расхождения с дизайн-системой — детали в Security → Code scanning и в сводке"
+            echo "::error::New design-system drift — details in the run summary"
             exit 1
           fi
-          echo "Новых расхождений нет"
+          echo "No new drift"

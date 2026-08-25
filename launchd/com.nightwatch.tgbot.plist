@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Автозапуск телеграм-бота при входе в систему.
+  Autostart the Telegram bot at login (macOS).
 
-  Секретов здесь нет намеренно: launchd умеет держать переменные прямо в plist,
-  но там они лежат открытым текстом в файле, который попадает в бэкапы.
-  Бот берёт их из ~/.night-watch.env с правами 600.
+  Secrets are deliberately NOT here: launchd can hold env vars in a plist,
+  but that is plaintext in a file that ends up in backups. The bot reads
+  ~/.night-watch.env (mode 600) instead.
 
-  Установка:
-    1) подставьте свой путь вместо /ПУТЬ/К/night-watch
-    2) заполните ~/.night-watch.env, проверьте: python3 bin/tgbot.py --check
+  Install:
+    1) put your own path instead of /PATH/TO/night-watch
+    2) fill ~/.night-watch.env and verify it (the bot has a check mode;
+       see the Telegram section of docs/QUICKSTART.md)
     3) cp launchd/com.nightwatch.tgbot.plist ~/Library/LaunchAgents/
     4) launchctl load ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
 
-  Остановить:  launchctl unload ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
-  Логи:        ~/Library/Logs/nightwatch-tgbot.log
+  Stop:  launchctl unload ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
+  Logs:  ~/Library/Logs/nightwatch-tgbot.log
 
-  KeepAlive стоит с SuccessfulExit=false: перезапускать только при падении.
-  Иначе при неверном токене launchd будет крутить бота по кругу.
+  KeepAlive uses SuccessfulExit=false: restart only on crashes. Otherwise a
+  bad token would make launchd spin the bot in a loop.
+
+  Heads-up: point ProgramArguments at the REAL python3 binary, not the
+  /usr/bin/python3 shim — macOS grants disk access to the actual executable.
 -->
 <plist version="1.0">
 <dict>
@@ -27,11 +31,11 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/ПУТЬ/К/night-watch/bin/tgbot.py</string>
+    <string>/PATH/TO/night-watch/bin/tgbot.py</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/ПУТЬ/К/night-watch</string>
+  <string>/PATH/TO/night-watch</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -44,8 +48,8 @@
   <integer>30</integer>
 
   <key>StandardOutPath</key>
-  <string>/Users/ВЫ/Library/Logs/nightwatch-tgbot.log</string>
+  <string>/Users/YOU/Library/Logs/nightwatch-tgbot.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ВЫ/Library/Logs/nightwatch-tgbot.log</string>
+  <string>/Users/YOU/Library/Logs/nightwatch-tgbot.log</string>
 </dict>
 </plist>

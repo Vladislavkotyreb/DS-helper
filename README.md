@@ -1,324 +1,103 @@
 # DS-helper
 
-Бот, который следит за дизайн-системой в Figma и сверяет её с тем, что реально
-лежит в вёрстке. Источник истины — Figma. Проверяемое — HTML/CSS в вашем
-репозитории. Python 3 без зависимостей, CI из коробки.
+A bot that watches your Figma design system and checks it against what your
+markup actually does. Figma is the source of truth; the code in your
+repository is what gets verified. System Python 3, zero dependencies, CI out
+of the box.
 
-**→ [Быстрая интеграция в ваш репозиторий](docs/QUICKSTART.md)** — скопировать,
-настроить, принять базовую линию, получить проверку на каждый PR.
+**→ [Quick integration guide](docs/QUICKSTART.md)** — copy, configure, accept
+a baseline, get a check on every PR. Русская версия: [docs/QUICKSTART.ru.md](docs/QUICKSTART.ru.md).
 
-**→ [examples/config-r4s.json](examples/config-r4s.json)** — живой пример
-настройки реального проекта: componentMap, переопределения состояний,
-вынесенный из-под аудита чужой хром.
+**→ [examples/config-r4s.json](examples/config-r4s.json)** — a real project's
+live configuration: componentMap, per-component state overrides, foreign
+chrome excluded from the audit.
 
-Собран по мотивам Night Watch Figma Librarian, но развёрнут в обратную сторону:
-там код был истиной и правил Figma, здесь дизайн-система истина и проверяет код.
-Общее — дисциплина: сначала чекпоинт, потом правка; библиотека не публикуется;
-осознанные отступления сохраняются, а не затираются.
+Inspired by Meta's Night Watch Figma Librarian, turned inside out: there the
+code was the truth and the bot edited Figma; here the design system is the
+truth and the bot checks the code. What survived is the discipline: checkpoint
+before any edit, never publish the library, keep human exceptions instead of
+overwriting them.
 
-## Что умеет
+## What it does
 
-- снимает слепок ДС из Figma: переменные со всеми режимами, компоненты с матрицами вариантов
-- сканирует прототипы и находит расхождения с ДС, с точностью до `файл:строка`
-- отличает дрейф значения от «взято из другого режима или акцента»
-- находит дефекты самой ДС: дыры в матрицах, дубли имён, опечатки, осиротевшие коллекции
-- ревьюит изменения ДС между прогонами и собирает карточку для change-log
+- takes a DS snapshot from Figma: variables with all their modes, components
+  with full variant matrices
+- scans your markup and reports drift down to `file:line`
+- tells value drift apart from "taken from another mode or accent"
+- finds defects in the DS itself: matrix holes, duplicate names, typos,
+  orphaned collections
+- reviews DS changes between runs and builds a change-log card
+- fails CI only on **new** findings — existing debt lives in an accepted
+  baseline
 
-## Установка
+## How it links code to Figma
 
-Нужен только Python 3 из системы — ни зависимостей, ни сети.
+Nothing is guessed — the link lives in the code:
 
-```bash
-git clone https://github.com/Vladislavkotyreb/DS-helper.git
-cd DS-helper
-cp config.example.json config.json
+```css
+--color-text-primary: #04141f;   /* Color/Text/Default/Primary */
+
+/* ---------- Button ---------- */
+.btn { … }
 ```
 
-В `config.json` прописать `designSystemFileKey`, `prototypesRoot` и список прототипов.
-`config.json` в гит не попадает: там ключи файлов Figma и внутренности вашей ДС.
+The trailing comment names the Figma Variable; the section header names the
+DS component. Code without comments is linked via `componentMap` and by value
+matching. States are read from selectors (`:hover`,
+`[aria-disabled="true"]`, …) — the mapping is `stateMap` in the config.
 
-## Запуск
-
-```bash
-python3 bin/nw.py
-```
+## Running
 
 ```bash
-python3 bin/nw.py --fix
+python3 bin/nw.py            # scan, compare, report
+python3 bin/nw.py --accept   # accept current findings as the baseline
+python3 bin/nw.py --fix      # mechanical fixes, checkpoint first
+python3 bin/nw.py --promote  # current DS snapshot becomes the review base
 ```
 
-```bash
-python3 bin/nw.py --promote
-```
+Reports are English by default; `"lang": "ru"` in config.json switches
+everything — reports, CLI, Telegram — to Russian.
 
-Первый — сверка и отчёт. Второй — механические правки, но только после чекпоинта:
-не удалось записать чекпоинт, правок не будет. Третий — принять текущий слепок ДС
-за базовый, чтобы следующее ревью считало дельту от него.
+## Finding categories
 
-Слепок ДС снимает агент через Figma MCP — единственный шаг, который сам по себе
-не запускается. Рецепт целиком в [skill/references/figma-pull.md](skill/references/figma-pull.md).
-
-## Два входа: прототипы и продовый код
-
-Диффер не знает, откуда пришли данные — ему нужен `code-snapshot.json`. Поэтому
-источников два, а движок сверки один.
-
-**Прототипы** (`prototypes` в конфиге) читаются по сцепке, которую в них заложили:
-имя Figma Variable в хвостовом комментарии токена, имя компонента в заголовке секции.
-
-**Продовый код** (`sources`) такой сцепки не имеет, и это нормально. Там работают
-два других механизма: сопоставление по значению — сырой цвет или размер, совпадающий
-со значением переменной ДС, — и `componentMap`, где вручную сказано, какой класс
-какому компоненту соответствует.
-
-```bash
-python3 bin/scan_src.py
-```
-
-Разбирает CSS, SCSS, LESS, блоки `<style>` и атрибуты `style=""` в html/php/шаблонах.
-Переменные `$scss` и `@less` считает объявлениями токенов наравне с CSS custom properties.
-Стили внутри JS и JSX **не разбирает** и честно сообщает, сколько таких файлов пропустил, —
-лучше молчать, чем делать вид, что проверил.
-
-### Тема определяется по фактам, а не по конфигу
-
-В большом репозитории тем может оказаться несколько. Прежде чем сверять значения, бот
-считает, к какому режиму они ближе. Если заявленная в конфиге тема не подтверждается,
-он не выдаёт разницу за дрейф, а говорит прямо: заявлена light, значения сходятся с dark,
-поправьте `theme` или разнесите источник.
-
-### Что показывается построчно, а что счётчиком
-
-То, что чинится одной заменой, — построчно с готовой подстановкой. То, что встречается
-сотнями (`#ffffff — 57 раз`, `16px — 62 раза`), — одной строкой со счётчиком и первым
-вхождением. Иначе отчёт по продовому репозиторию превращается в простыню, которую
-не читают.
-
-Ссылка на токен подставляется по синтаксису источника: `$gap-l` для SCSS,
-`var(--gap-l)` для CSS.
-
-### Правки в продовый код бот не вносит
-
-`--fix` работает только по прототипам. Продовые источники он пропускает и говорит об этом:
-в чужой репозиторий ходят пул-реквестом, а не правкой на месте.
-
-## Бот в телеграме
-
-Прогонять сверку сообщением с телефона.
-
-```bash
-TG_BOT_TOKEN=... TG_ALLOWED_CHATS=123456 python3 bin/tgbot.py
-```
-
-Работает длинным опросом, поэтому публичный адрес не нужен — живёт на ноутбуке
-за NAT. Токен выдаёт @BotFather, бот его только читает.
-
-| Команда | Что делает |
+| Code | Meaning |
 |---|---|
-| `/run` | прогнать сверку, прислать сводку и отчёт файлом |
-| `/report` | последний отчёт файлом |
-| `/ds` | что изменилось в дизайн-системе |
-| `/status` | слепок, находки, базовая линия |
-| `/fix` | механические правки, спрашивает подтверждение |
-| `/accept` | принять текущее за базовую линию |
+| `TOKEN_VALUE_DRIFT` | token value drifted from the Figma Variable |
+| `ACCENT_MISMATCH` | value is right, but belongs to another DS accent |
+| `FOREIGN_VARIABLE` | token named after a foreign kit's variable |
+| `TOKEN_UNKNOWN` | token references a name the DS does not have |
+| `ORPHAN_TOKEN` | declared and never used |
+| `RAW_VALUE` | hardcoded value where a token exists |
+| `DEPRECATED_USE` | a DEPRECATED component is in use |
+| `STATE_GAP` | the DS draws a state the CSS never covers |
+| `MISSING_COMPONENT` | watchlisted DS component absent from the code |
+| `DS_DEFECT` | defect in the design system itself |
+| `NOT_CHECKED` | nothing to compare against — snapshot lacks the data |
 
-### Секреты
+## Honesty rules
 
-Токен берётся из окружения или из `~/.night-watch.env` с правами 600:
+The snapshot must mark what it does not know (`variablesComplete`,
+`missingKnown`) — wording degrades to "verify manually" instead of false
+alarms. A crash is never confused with findings: findings exit 1, a crash
+exits 4 and its stderr is shown. A false finding costs more than a missed
+one — `nw:ignore`, `outOfScope`, `tier: legacy` and per-component state
+overrides all exist to keep the report worth reading.
+
+## Boundaries
+
+Never publishes the Figma library, never edits mockup files, makes no visual
+judgements. CSS edits happen only on an explicit `--fix`, only after a
+checkpoint was written, and never in `sources` marked as production — those
+get pull requests.
+
+## Layout
 
 ```
-TG_BOT_TOKEN=...
-TG_ALLOWED_CHATS=123456
-FIGMA_TOKEN=
+bin/            the engine (scan, diff, review, watch, webhook, telegram)
+docs/           quickstart in two languages, Russian README
+examples/       a real project's configuration
+skill/          an agent role for taking DS snapshots via Figma MCP
+relay/          Figma → GitHub webhook relay (Cloudflare Worker)
+launchd/        macOS autostart for the Telegram bot
+.github/        prototypes-check (push/PR) and ds-watch (schedule)
 ```
-
-launchd умеет держать переменные прямо в plist, но там они лежат открытым текстом
-в файле, который попадает в бэкапы. Отдельный файл с ограниченными правами лучше.
-
-```bash
-python3 bin/tgbot.py --check
-```
-
-Проверяет настройку, никуда не ходя: на месте ли токен, задан ли список чатов,
-есть ли конфиг и слепок ДС.
-
-`TG_ALLOWED_CHATS` обязателен: без списка разрешённых чатов любой, кто найдёт бота,
-сможет запускать правки в ваших файлах. Свой id узнать — запустить с
-`TG_ALLOWED_CHATS=whoami` и написать боту.
-
-`/fix` меняет файлы, поэтому требует `/fix confirm` в течение пяти минут.
-Правка из телефона — не то, что стоит делать одним касанием.
-
-Автозапуск при входе в систему — [`launchd/com.nightwatch.tgbot.plist`](launchd/com.nightwatch.tgbot.plist).
-
-### Чего бот в телеграме не может
-
-Обновить слепок дизайн-системы. Значения переменных Figma отдаёт только через
-MCP-сессию агента — обычным токеном их не взять, пока тариф не Enterprise.
-
-На практике это мешает мало: слепок меняется, только когда дизайнер публикует
-библиотеку, а код меняется постоянно. Плохо было бы другое — молча сверять со
-старым слепком. Поэтому если задан `FIGMA_TOKEN`, бот перед прогоном проверяет
-обычным Files API, не публиковалась ли библиотека после слепка, и предупреждает
-прямо в чате, вместо того чтобы уверенно выдавать устаревший результат.
-
-## Триггер и расписание
-
-Три способа разбудить бота, все три в одном рабочем процессе
-[`.github/workflows/ds-watch.yml`](.github/workflows/ds-watch.yml).
-
-**Событие `LIBRARY_PUBLISH`** — главный. Срабатывает на публикацию библиотеки,
-а не на каждую правку канваса, и приносит дельту готовой: `created`, `modified`,
-`deleted` для компонентов, стилей и переменных. Это тот же «release-gated» подход,
-что у оригинала: реагировать на релиз, а не на коммит.
-
-Крупная публикация приходит **несколькими событиями** по типам ассетов — Figma об этом
-предупреждает прямо. Поэтому события кладутся в очередь и склеиваются окном в 10 минут:
-иначе бот проснётся на полпути и увидит половину изменений.
-
-```bash
-python3 bin/webhook.py create https://ваше-реле/figma
-```
-
-Figma шлёт POST на голый URL и не умеет ставить заголовки, а `repository_dispatch`
-у GitHub требует `Authorization`. Между ними нужен посредник — он в
-[`relay/cloudflare-worker.js`](relay/cloudflare-worker.js), тридцать строк.
-
-**Опрос по расписанию** — основной режим, пока вебхук не поднят, и страховка от
-пропущенного события. Будни, 06:00 UTC. Сравнивает опубликованные компоненты и стили
-с прошлым состоянием через обычный Files API.
-
-```bash
-FIGMA_TOKEN=... python3 bin/watch.py
-```
-
-**Руками** — из вкладки Actions, с выбором порога и возможностью принять базовую линию.
-
-### Чего расписание не может
-
-Значения переменных из CI не снять: **Variables REST API доступен только Enterprise**,
-дословно «you must have a Full seat in an Enterprise org». Матрицы компонентов при этом
-берутся обычным `GET /v1/files/:key`, который тарифом не ограничен.
-
-Поэтому если публикация задела переменные, бот не делает вид, что сверил: он помечает
-слепок несвежим (`variablesComplete: false`), и отчёт понижает формулировки с
-«в ДС такого нет» до «слепком не подтверждено», пока слепок не обновит прогон агента
-с Figma MCP.
-
-## Как бот показывает найденное
-
-Четыре канала, включаются независимо.
-
-| Канал | Зачем |
-|---|---|
-| `reports/REPORT.md` | человекочитаемый разбор с `файл:строка` |
-| `snapshots/findings.json` | то же машинно, для своих скриптов |
-| SARIF → GitHub code scanning | построчные аннотации прямо в коде, история и автоматическое «исправлено» |
-| Сводка прогона + артефакт | видно из вкладки Actions, не открывая репозиторий |
-
-```bash
-python3 bin/nw.py --sarif nw.sarif
-```
-
-По умолчанию в SARIF уезжают только новые находки — иначе первый же прогон на легаси
-завалит вкладку Security сотнями старых. `--sarif-all` выгружает всё.
-
-## Рычаги контроля
-
-Главный вопрос при внедрении — что делать с тем, что уже накопилось. Бот, который
-на первом прогоне выдаёт 400 расхождений и роняет сборку, живёт ровно один день.
-
-### Базовая линия
-
-```bash
-python3 bin/nw.py --accept
-```
-
-Запоминает текущие расхождения как принятые. Дальше прогон падает только на **новых**,
-а старые остаются в отчёте отдельным разделом со счётчиком по категориям. Это позволяет
-включить бота на существующем коде сегодня, а разбирать долги постепенно.
-
-Отпечаток находки не включает номер строки: код двигается, а находка остаётся той же.
-Счётчик повторов тоже отбрасывается, иначе «57 раз» и «58 раз» станут разными находками.
-
-Исправленное бот замечает сам и показывает разделом «Исправлено с прошлого раза» —
-чтобы вычеркнуть, достаточно повторить `--accept`.
-
-### Порог провала
-
-```bash
-python3 bin/nw.py --fail-on high
-```
-
-| Значение | Когда прогон считается проваленным |
-|---|---|
-| `new` | появились новые находки — по умолчанию |
-| `high` | есть важные, не принятые в базовую линию |
-| `medium` / `low` | то же, но порог ниже |
-| `never` | никогда, бот только отчитывается |
-
-Задаётся флагом или полем `failOn` в конфиге.
-
-### Точечные исключения
-
-`/* nw:ignore причина */` в конце строки — сканер её пропускает. Причина остаётся
-в коде, а не в чьей-то голове.
-
-`outOfScope` в конфиге выводит из-под аудита чужой хром целиком: в отчёте он считается
-отдельно и дрейфом не признаётся.
-
-`tier: legacy` у источника отключает проверки вида «это надо достроить»: у прототипа,
-который не развивают, непокрытые состояния — не долг.
-
-`conventions: false` отключает проверки, которым нужны комментарии с именами Figma
-Variables. Продовому коду они не нужны и не должны считаться нарушением.
-
-## Категории расхождений
-
-| Код | Что значит |
-|---|---|
-| `TOKEN_VALUE_DRIFT` | значение токена в коде разошлось со значением Figma Variable |
-| `ACCENT_MISMATCH` | значение верное, но взято из другого акцента ДС |
-| `FOREIGN_VARIABLE` | токен назван по переменной чужой коллекции |
-| `TOKEN_UNKNOWN` | токен ссылается на имя, которого в ДС нет |
-| `ORPHAN_TOKEN` | токен объявлен и нигде не используется |
-| `RAW_VALUE` | сырое значение там, где есть токен |
-| `DEPRECATED_USE` | используется компонент, помеченный DEPRECATED |
-| `STATE_GAP` | у компонента ДС есть состояние, в CSS его нет |
-| `MISSING_COMPONENT` | компонент ДС из watchlist не заведён в прототипе |
-| `DS_DEFECT` | дефект самой ДС |
-| `NOT_CHECKED` | сверить не с чем — в слепке нет значения для нужного режима |
-
-## Как бот сцепляет код с Figma
-
-Ничего не угадывается — сцепка уже есть в самой вёрстке, бот её читает:
-
-- `tokens.css` — `--color-text-default-primary:#04141f; /* Color/Text/Default/Primary */`
-  Хвостовой комментарий и есть имя Figma Variable.
-- `components.css` — `/* ---------- Chip (4082:7085) ---------- */`
-  Заголовок секции даёт имя компонента ДС и node-id.
-- Состояния снимаются с селекторов, соответствие описано в `config.json → stateMap`.
-- Классы, названные не по компоненту, привязываются в `config.json → componentMap`.
-
-## Честность отчёта
-
-Бот обязан помечать, чего он не знает. `variablesComplete`, `componentsComplete`,
-`missingKnown` — не формальности: пока они `false`, формулировки понижаются
-с «в ДС такого нет» до «слепком не подтверждено».
-
-Ложная находка дороже пропущенной: если в отчёте окажется мусор, его перестанут читать.
-Поэтому `stateMapByComponent` переопределяет общее соответствие там, где одно слово
-значит разное (у `Button` состояние `Active` — нажатие, у `Tab` — выбранная вкладка),
-а `statesProvidedByWrapper` учитывает, что ошибка поля живёт на обёртке, а не на инпуте.
-
-## Осознанные отступления
-
-`/* nw:ignore причина */` в конце строки — сканер её пропускает.
-`config.json → outOfScope` выводит из-под аудита чужой хром.
-Прототипы с `tier: legacy` не проверяются на непокрытые состояния и незаведённые
-компоненты: их не развивают.
-
-## Границы
-
-Не публикует библиотеку Figma, не редактирует файлы макетов, не судит о визуале.
-В change-log дизайн-системы пишет только по прямой просьбе и только после показа текста.

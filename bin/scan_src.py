@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Сканер продового кода — там, где сцепки с Figma нет.
+Production-code scanner — for code with no Figma link in it.
 
-Прототипы бот читает по сцепке, которую в них заложили: имя Figma Variable
-в хвостовом комментарии токена, имя компонента в заголовке секции. В продовом
-коде ничего этого нет, поэтому здесь работают два других механизма:
+Prototypes are read through the link kept inside them: the Figma Variable name
+in a token's trailing comment, the component name in a section header.
+Production code has neither, so two other mechanisms apply:
 
-  1. сопоставление по значению — сырой цвет или размер, совпадающий со значением
-     переменной ДС, это кандидат на токен;
-  2. componentMap из конфига — какой CSS-класс какому компоненту ДС соответствует.
+  1. value matching — a raw colour or size equal to a DS variable's value is a
+     token candidate;
+  2. componentMap from the config — which CSS class maps to which DS component.
 
-Выход — те же записи, что у scan.py, поэтому diff.py работает без изменений.
-Умеет CSS, SCSS, LESS, блоки <style> и атрибуты style="" в html/php/шаблонах.
-Стили внутри JS/JSX не разбирает и честно сообщает, сколько таких файлов пропустил.
+The output matches scan.py records exactly, so diff.py needs no changes.
+Handles CSS, SCSS, LESS, <style> blocks and style="" attributes in html/php
+templates. Styles inside JS/JSX are not parsed — the skipped file count is
+reported honestly.
 """
 import json, sys, os, re, sys, fnmatch, hashlib, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scan as base
+from i18n import t
 
 RE_STYLE_BLOCK = re.compile(r'<style[^>]*>(.*?)</style>', re.S | re.I)
 RE_STYLE_ATTR = re.compile(r'style\s*=\s*"([^"]*)"')
@@ -47,7 +49,7 @@ def walk(root, include, exclude):
 
 
 def scan_source(src):
-    """src — запись из config.sources. Возвращает запись формата scan.py."""
+    """src — an entry from config.sources. Returns a scan.py-format record."""
     root = src['root']
     include = src.get('include') or ['**/*.css', '**/*.scss', '**/*.less',
                                      '**/*.html', '**/*.php', '**/*.js', '**/*.jsx', '**/*.tsx']
@@ -103,7 +105,7 @@ def _absorb(out, blk, rel):
 
 
 def _scss_vars(out, text, rel):
-    """$var / @var — тоже объявления токенов, просто на другом синтаксисе."""
+    """$var / @var are token declarations too, just in another syntax."""
     for m in RE_SCSS_VAR.finditer(text):
         name = m.group(1) + m.group(2)
         val = m.group(3).strip()
@@ -117,7 +119,7 @@ def _scss_vars(out, text, rel):
 
 
 def _style_attrs(out, text, rel, oos):
-    """Инлайновые style="" — в продовых шаблонах их обычно много и все сырые."""
+    """Inline style="" attrs — production templates are full of them, all raw."""
     for m in RE_STYLE_ATTR.finditer(text):
         line = text.count('\n', 0, m.start()) + 1
         blk = base.scan_css_text('.inline{%s}' % m.group(1), rel, oos, line - 1)
@@ -140,7 +142,7 @@ def main():
     cfg = base.load_config(here)
     sources = cfg.get('sources') or []
     if not sources:
-        print('в config.json нет sources — сканировать нечего'); return 0
+        print(t('в config.json нет sources — сканировать нечего', 'no sources in config.json — nothing to scan')); return 0
 
     snap_path = os.path.join(here, 'snapshots', 'code-latest.json')
     snap = json.load(open(snap_path, encoding='utf-8')) if os.path.exists(snap_path) else \
@@ -152,11 +154,12 @@ def main():
         r = scan_source(src)
         added.append(r)
         if not r['exists']:
-            print('  %-24s — нет папки %s' % (r['id'], r['dir'])); continue
-        print('  %-24s файлов %4d · правил %5d · сырых %5d · токенов %4d%s'
+            print(t('  %-24s — нет папки %s', '  %-24s — missing folder %s') % (r['id'], r['dir'])); continue
+        print(t('  %-24s файлов %4d · правил %5d · сырых %5d · токенов %4d%s',
+                '  %-24s files %4d · rules %5d · raw %5d · tokens %4d%s')
               % (r['id'], len(r['files']), len(r['rules']),
                  len([x for x in r['raws'] if not x['outOfScope']]), len(r['tokens']),
-                 ('  · пропущено JS-стилей: %d' % r['skippedJs']) if r['skippedJs'] else ''))
+                 (t('  · пропущено JS-стилей: %d', '  · JS style files skipped: %d') % r['skippedJs']) if r['skippedJs'] else ''))
 
     snap['prototypes'] = keep + added
     snap['generatedAt'] = datetime.datetime.now().isoformat(timespec='seconds')
