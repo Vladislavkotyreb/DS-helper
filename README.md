@@ -1,12 +1,14 @@
 # DS-helper
 
+**English** · [Русский](docs/README.ru.md)
+
 A bot that watches your Figma design system and checks it against what your
 markup actually does. Figma is the source of truth; the code in your
 repository is what gets verified. System Python 3, zero dependencies, CI out
 of the box.
 
 **→ [Quick integration guide](docs/QUICKSTART.md)** — copy, configure, accept
-a baseline, get a check on every PR. Русская версия: [docs/QUICKSTART.ru.md](docs/QUICKSTART.ru.md).
+a baseline, get a check on every PR.
 
 **→ [examples/config-r4s.json](examples/config-r4s.json)** — a real project's
 live configuration: componentMap, per-component state overrides, foreign

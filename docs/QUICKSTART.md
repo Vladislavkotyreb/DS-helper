@@ -1,5 +1,7 @@
 # Quick integration into your repository
 
+**English** · [Русский](QUICKSTART.ru.md)
+
 The bot checks your markup against a Figma design system and fails CI only when
 **new** drift appears. System Python 3, zero dependencies.
 

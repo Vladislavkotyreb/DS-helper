@@ -1,6 +1,6 @@
 {
   "project": "MyDS",
-  "projectNote": "Project name — appears in report headers and the Telegram bot help.",
+  "projectNote": "Project name — appears in report headers.",
   "lang": "en",
   "langNote": "Report and CLI language: en or ru. Switching later renames a few finding subjects — re-run --accept afterwards.",
   "figma": {
