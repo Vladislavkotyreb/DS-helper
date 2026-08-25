@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Night Watch R4S Librarian — сверка.
+Night Watch DS-helper — сверка.
 
 ds-latest.json (что в дизайн-системе) × code-latest.json (что в прототипах)
 → findings.json + reports/REPORT.md
@@ -263,7 +263,8 @@ def check_tokens(proto, ds, cfg, out):
             if foreign:
                 out.append(dict(cat='FOREIGN_VARIABLE', sev='medium', proto=proto['id'],
                                 file=t['file'], line=t['line'], subject=tname,
-                                msg='«%s» — не переменная R4S: %s' % (fig, foreign)))
+                                msg='«%s» — не переменная %s: %s'
+                                    % (fig, cfg.get('project', 'вашей ДС'), foreign)))
             elif complete:
                 out.append(dict(cat='TOKEN_UNKNOWN', sev='medium', proto=proto['id'],
                                 file=t['file'], line=t['line'], subject=tname,
@@ -563,7 +564,7 @@ def render(findings, code, ds, cfg, chrome_counts, baseline=None, fixed=None):
     high = sum(1 for f in fresh if f['sev'] == 'high')
 
     L = []
-    L.append('# Night Watch R4S — сводка прогона')
+    L.append('# Night Watch %s — сводка прогона' % cfg.get('project', ''))
     L.append('')
     L.append('%s · ДС `%s` · слепок ДС от %s'
              % (ts, ds['source']['designSystemFileKey'], ds.get('generatedAt', '—')[:10]))
@@ -644,7 +645,8 @@ def render(findings, code, ds, cfg, chrome_counts, baseline=None, fixed=None):
     if chrome_counts:
         L.append('## Вне периметра ДС')
         L.append('')
-        L.append(cfg['outOfScope']['comment'])
+        L.append((cfg.get('outOfScope') or {}).get('comment',
+                 'Селекторы из outOfScope — чужой хром, дрейфом ДС не считаются.'))
         L.append('')
         for pid, n in chrome_counts.items():
             if n:
@@ -750,4 +752,11 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(4)   # авария — не «есть находки», nw.py её не проглотит

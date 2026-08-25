@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Night Watch R4S Librarian — сканер прототипов.
+Night Watch DS-helper — сканер прототипов.
 
 Читает HTML/CSS/JS прототипов и строит code-snapshot.json:
 что объявлено, что используется, где сырые значения, какие состояния покрыты.
 Никакой сети. Детерминированный: один и тот же вход даёт один и тот же выход.
 """
-import json, os, re, sys, hashlib, datetime
+import json, sys, os, re, sys, hashlib, datetime
 
 # ---------- регулярки ----------
 RE_DECL       = re.compile(r'--([A-Za-z0-9_][A-Za-z0-9_-]*)\s*:\s*([^;{}]+?)\s*(?=;|$)')
@@ -325,4 +325,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        import sys, traceback
+        traceback.print_exc()
+        sys.exit(4)

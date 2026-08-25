@@ -21,7 +21,15 @@ import json, os, re, subprocess, sys, time, urllib.request, urllib.error, mimety
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API = 'https://api.telegram.org/bot%s/%s'
 
-HELP = """Night Watch — сверка вёрстки с дизайн-системой R4S.
+def project_name():
+    try:
+        cfg = json.load(open(os.path.join(HERE, 'config.json'), encoding='utf-8'))
+        return cfg.get('project') or 'вашей ДС'
+    except Exception:
+        return 'вашей ДС'
+
+
+HELP = """Night Watch — сверка вёрстки с дизайн-системой {project}.
 
 /run — прогнать сверку, прислать сводку
 /report — полный отчёт файлом
@@ -33,6 +41,10 @@ HELP = """Night Watch — сверка вёрстки с дизайн-систе
 
 Слепок ДС обновляется не отсюда, а прогоном агента с Figma MCP.
 Но если задан FIGMA_TOKEN, бот заметит, что ДС уехала, и предупредит."""
+
+
+def help_text():
+    return HELP.replace('{project}', project_name())
 
 
 # ---------- транспорт ----------
@@ -211,7 +223,7 @@ def handle(token, chat_id, text):
     arg = cmd[1].lower() if len(cmd) > 1 else ''
 
     if head in ('start', 'help', ''):
-        return say(token, chat_id, HELP)
+        return say(token, chat_id, help_text())
 
     if head == 'status':
         stale = staleness()

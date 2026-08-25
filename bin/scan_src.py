@@ -15,7 +15,7 @@
 Умеет CSS, SCSS, LESS, блоки <style> и атрибуты style="" в html/php/шаблонах.
 Стили внутри JS/JSX не разбирает и честно сообщает, сколько таких файлов пропустил.
 """
-import json, os, re, sys, fnmatch, hashlib, datetime
+import json, sys, os, re, sys, fnmatch, hashlib, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scan as base
@@ -166,4 +166,11 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(4)

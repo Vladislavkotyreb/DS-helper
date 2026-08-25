@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Night Watch R4S Librarian — прогон.
+Night Watch DS-helper — прогон.
 
     python3 bin/nw.py            снять код, сверить с ДС, собрать ревью и отчёт
     python3 bin/nw.py --fix      то же + механические правки в CSS (только после чекпоинта)
@@ -44,9 +44,11 @@ def run(script, extra=None):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'bin', script)] + (extra or []),
                        cwd=HERE, capture_output=True, text=True)
     sys.stdout.write(r.stdout)
-    if r.returncode not in (0, 1):
+    if r.stderr:
         sys.stderr.write(r.stderr)
-        raise SystemExit('%s упал с кодом %d' % (script, r.returncode))
+    if r.returncode not in (0, 1):
+        # 1 — «есть находки», это не ошибка; всё остальное — авария шага
+        raise SystemExit('%s упал с кодом %d — выше его stderr' % (script, r.returncode))
     return r.returncode
 
 

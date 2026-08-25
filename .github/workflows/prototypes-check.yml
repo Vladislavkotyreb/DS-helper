@@ -1,0 +1,108 @@
+name: Prototypes check
+
+# Проверка макетов, живущих в этом же репозитории.
+# Запускается на каждый пуш и PR, который их трогает, — в отличие от ds-watch,
+# который следит за Figma по расписанию.
+on:
+  push:
+    branches: [main]
+    paths: ['prototypes/**', 'bin/**', 'config.json', 'snapshots/ds-latest.json']
+  pull_request:
+    paths: ['prototypes/**', 'bin/**', 'config.json', 'snapshots/ds-latest.json']
+  workflow_dispatch:
+    inputs:
+      fail-on:
+        description: 'Порог провала: new | high | medium | low | never'
+        default: 'new'
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: proto-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Конфиг: закоммиченный в репо (приватный режим) либо из секрета.
+      - name: Конфиг
+        env:
+          NW_CONFIG: ${{ secrets.NW_CONFIG }}
+        run: |
+          if [ -f config.json ]; then
+            echo "конфиг из репозитория"
+          elif [ -n "$NW_CONFIG" ]; then
+            printf '%s' "$NW_CONFIG" > config.json
+            echo "конфиг из секрета NW_CONFIG"
+          else
+            echo "::error::Нет ни config.json в репо, ни секрета NW_CONFIG"
+            exit 1
+          fi
+          python3 -c "import json;json.load(open('config.json'))"
+
+      - name: Слепок ДС на месте?
+        run: |
+          if [ ! -f snapshots/ds-latest.json ]; then
+            echo "::error::Нет snapshots/ds-latest.json — его снимает агент с Figma MCP и коммитит в репо"
+            exit 1
+          fi
+          python3 -c "
+          import json, datetime
+          d = json.load(open('snapshots/ds-latest.json'))
+          print('слепок от', d.get('generatedAt','?')[:10],
+                '· переменных', len(d.get('variables',{})),
+                '· компонентов', len(d.get('components',[])))"
+
+      - name: Сверка
+        id: diff
+        continue-on-error: true
+        run: |
+          python3 bin/nw.py --fail-on "${{ inputs.fail-on || 'new' }}" --sarif nw.sarif
+
+      # В приватном репозитории без Advanced Security выгрузка падает — не роняем прогон
+      - name: Находки в code scanning (нужен Advanced Security)
+        if: always() && hashFiles('nw.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: nw.sarif
+          category: prototypes
+
+      - name: Сводка
+        if: always()
+        run: |
+          {
+            echo "## Сверка макетов с дизайн-системой"
+            echo
+            sed -n '1,40p' reports/REPORT.md
+            echo
+            echo "<details><summary>Полный отчёт</summary>"
+            echo
+            cat reports/REPORT.md
+            echo
+            echo "</details>"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Отчёт артефактом
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prototypes-report
+          path: |
+            reports/
+            snapshots/findings.json
+          retention-days: 30
+
+      - name: Итог
+        if: always()
+        run: |
+          if [ "${{ steps.diff.outcome }}" = "failure" ]; then
+            echo "::error::Новые расхождения с дизайн-системой — детали в Security → Code scanning и в сводке"
+            exit 1
+          fi
+          echo "Новых расхождений нет"

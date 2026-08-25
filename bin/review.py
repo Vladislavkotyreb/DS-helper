@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Night Watch R4S Librarian — ревью изменений в дизайн-системе.
+Night Watch DS-helper — ревью изменений в дизайн-системе.
 
 Сравнивает предыдущий слепок ДС с текущим и раскладывает разницу
-по рубрикам change-log'а R4S: Добавлено / Изменено / Исправлено / Удалено / В разработке.
+по рубрикам change-log'а: Добавлено / Изменено / Исправлено / Удалено / В разработке.
 
 Выход:
   reports/DS-REVIEW.md         — человекочитаемое ревью
   reports/changelog-card.json  — готовая полезная нагрузка для карточки в Figma
-                                 (узел 12929:4, шаблон карточки 13380:5783)
+                                 (узел берётся из config: figma.changeLogNode)
 
 Саму запись в Figma делает агент через use_figma — здесь только детерминированный текст.
 """
-import json, os, sys, datetime, collections
+import json, sys, os, sys, datetime, collections
 
 SECTIONS = ['Добавлено', 'Изменено', 'Исправлено', 'Удалено', 'В разработке']
 
@@ -131,7 +131,7 @@ def review(prev, cur):
 
 
 def card_payload(sections, date_str):
-    """Текст карточки по шаблону change-log'а R4S."""
+    """Текст карточки по шаблону change-log'а."""
     LS = ' '          # в шаблоне перенос в заголовке — U+2028
     heading = 'Обновление' + LS + 'от ' + date_str
     body_parts, ranges = [], []
@@ -160,6 +160,7 @@ def card_payload(sections, date_str):
 def main():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     snaps = os.path.join(here, 'snapshots')
+    cfg = load_config(here)
     cur = load(os.path.join(snaps, 'ds-latest.json'))
     prev = load(os.path.join(snaps, 'ds-previous.json'))
     if cur is None:
@@ -175,7 +176,9 @@ def main():
     payload = card_payload(sections if delta else
                            dict((k, []) for k in SECTIONS), today)
 
-    L = ['# Ревью изменений R4S design system', '',
+    ds_name = (cfg.get('figma') or {}).get('designSystemName') or cfg.get('project', '')
+    node = (cfg.get('figma') or {}).get('changeLogNode')
+    L = ['# Ревью изменений %s' % (ds_name or 'дизайн-системы'), '',
          '%s · слепок %s vs %s' % (today, (prev or {}).get('generatedAt', '—')[:10],
                                    cur.get('generatedAt', '—')[:10]), '']
     if not delta:
@@ -187,8 +190,9 @@ def main():
             for i in sections['В разработке']:
                 L.append('- %s' % i)
     else:
-        L.append('**%s.** Ниже — текст, который ляжет в карточку узла `12929:4`.'
-                 % plural(delta, 'изменение', 'изменения', 'изменений'))
+        L.append('**%s.** Ниже — текст для карточки change-log%s.'
+                 % (plural(delta, 'изменение', 'изменения', 'изменений'),
+                    ' (узел `%s`)' % node if node else ''))
         L.append('')
         for sec in SECTIONS:
             items = sections[sec]
@@ -218,4 +222,11 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(4)
