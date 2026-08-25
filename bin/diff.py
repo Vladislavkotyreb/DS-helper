@@ -52,6 +52,20 @@ def load_config(here):
         raise SystemExit(2)
 
 
+def ref(token_name):
+    """Как сослаться на токен в этом синтаксисе: $scss / @less / var(--custom-property)."""
+    return token_name if token_name[:1] in ('$', '@') else 'var(%s)' % token_name
+
+
+def plural(n, one, few, many):
+    n10, n100 = n % 10, n % 100
+    if n10 == 1 and n100 != 11:
+        return '%d %s' % (n, one)
+    if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
+        return '%d %s' % (n, few)
+    return '%d %s' % (n, many)
+
+
 def norm_color(v):
     if not v:
         return None
@@ -126,6 +140,31 @@ def check_tokens(proto, ds, cfg, out):
     complete = ds.get('variablesComplete', False)
     theme = proto.get('theme') or 'light'
     unchecked = 0
+
+    # Заявленной теме верим только если она подтверждается значениями.
+    # В продовом репозитории тем может оказаться несколько, и врать про дрейф нельзя.
+    votes = {'light': 0, 'dark': 0}
+    for t in proto['tokens'].values():
+        fig = t.get('figmaName')
+        v = variables.get(fig) if fig else None
+        if not isinstance(v, dict) or 'light' not in v or 'dark' not in v:
+            continue
+        got = norm_color(t['value']) or as_number(t['value'])
+        for m in ('light', 'dark'):
+            cand = norm_color(v[m]) or as_number(v[m])
+            if cand is not None and got is not None and cand == got:
+                votes[m] += 1
+    theme_conflict = False
+    if votes['light'] + votes['dark'] >= 3 and votes[theme] < votes['light' if theme == 'dark' else 'dark']:
+        other = 'light' if theme == 'dark' else 'dark'
+        theme_conflict = True
+        out.append(dict(cat='NOT_CHECKED', sev='info', proto=proto['id'],
+                        file=None, line=None, subject='тема источника',
+                        msg='в конфиге заявлена %s, но значения токенов сходятся с %s '
+                            '(%d против %d) — сверку значений не делаю, поправьте theme '
+                            'или разнесите источник по темам'
+                            % (theme, other, votes[other], votes[theme])))
+        theme = other
     for tname, t in sorted(proto['tokens'].items()):
         fig = t.get('figmaName')
         if not fig:
@@ -147,6 +186,9 @@ def check_tokens(proto, ds, cfg, out):
                                 file=t['file'], line=t['line'], subject=tname,
                                 msg='«%s» не подтверждён текущим слепком ДС — дособрать слепок, '
                                     'прежде чем считать это расхождением' % fig))
+            continue
+        if theme_conflict:
+            unchecked += 1
             continue
         want, got = var_value(ds, fig, theme), t['value']
         if want is None:
@@ -186,54 +228,109 @@ def check_tokens(proto, ds, cfg, out):
         if proto['usage'].get(tname, 0) == 0:
             out.append(dict(cat='ORPHAN_TOKEN', sev='low', proto=proto['id'],
                             file=t['file'], line=t['line'], subject=tname,
-                            msg='объявлен, ни одного var(%s) в прототипе' % tname))
+                            msg='объявлен, ни одного обращения к %s%s' % (
+                                tname, ' в источнике' if proto.get('tier') == 'production'
+                                else ' в прототипе')))
 
 
 def check_raw(proto, ds, cfg, out):
-    by_color, by_num = ds_value_index(ds, proto.get('theme') or 'light')
-    tok_by_color, tok_by_num = {}, {}
+    """
+    Сырые значения. Правило вывода: то, что чинится одной заменой, показываем
+    построчно; то, что встречается сотнями, схлопываем в одну строку со счётчиком.
+    Иначе на продовом репозитории отчёт превращается в простыню и его не читают.
+    """
+    theme = proto.get('theme') or 'light'
+    by_color, by_num = ds_value_index(ds, theme)
+
+    # значение → локальные токены с ним. Их может быть несколько, и тогда
+    # называть один нельзя: #ffffff бывает и фоном, и текстом на тёмном.
+    local_by_color, local_by_num = collections.defaultdict(list), collections.defaultdict(list)
     for tn, t in proto['tokens'].items():
         c = norm_color(t['value'])
         if c:
-            tok_by_color.setdefault(c, tn)
+            local_by_color[c].append(tn)
         else:
             n = as_number(t['value'])
             if n is not None:
-                tok_by_num.setdefault(n, tn)
+                local_by_num[n].append(tn)
+
+    def phrase(local_list, ds_names):
+        if len(local_list) == 1:
+            return 'есть токен %s' % local_list[0], ref(local_list[0])
+        if ds_names:
+            head = ds_names[0]
+            tail = (' (или %s — значение неоднозначное)' % ', '.join(ds_names[1:3])) \
+                if len(ds_names) > 1 else ''
+            return 'это %s%s' % (head, tail), None
+        if local_list:
+            return ('совпадает с %s — токенов несколько, выбирать по смыслу'
+                    % ', '.join(local_list[:3])), None
+        return None, None
 
     buckets = collections.Counter()
+    agg = collections.OrderedDict()   # (kind, value, повод) → [счётчик, где впервые]
+
+    def bump(kind, value, reason, r):
+        key = (kind, value, reason)
+        if key not in agg:
+            agg[key] = [0, (r['file'], r['line'], '%s { %s }' % (r['selector'], r['prop']))]
+        agg[key][0] += 1
+
     for r in proto['raws']:
         if r['outOfScope']:
             buckets['chrome'] += 1
             continue
-        if r['kind'] == 'color':
+        subject = '%s { %s }' % (r['selector'], r['prop'])
+
+        if r['kind'] in ('color', 'color-fn'):
             v = r['value']
-            names = by_color.get(v, [])
-            local = tok_by_color.get(v)
-            if names or local:
+            names = by_color.get(v, []) if r['kind'] == 'color' else []
+            local_list = local_by_color.get(v, []) if r['kind'] == 'color' else []
+            if len(local_list) == 1:
+                msg, fix = phrase(local_list, names)
                 out.append(dict(cat='RAW_VALUE', sev='high', proto=proto['id'],
-                                file=r['file'], line=r['line'], subject='%s { %s }' % (r['selector'], r['prop']),
-                                msg='сырой %s — есть токен %s' % (v, local or ('var для ' + names[0])),
-                                fix='var(%s)' % local if local else None))
+                                file=r['file'], line=r['line'], subject=subject,
+                                msg='сырой %s — %s' % (v, msg), fix=fix))
+            elif names or local_list:
+                bump('color', v, 'known', r)
             else:
-                out.append(dict(cat='RAW_VALUE',
-                                sev='medium' if ds.get('variablesComplete') else 'low',
-                                proto=proto['id'],
-                                file=r['file'], line=r['line'], subject='%s { %s }' % (r['selector'], r['prop']),
-                                msg='сырой цвет %s — совпадения в снятой части палитры ДС нет' % v))
+                bump('color', v, 'unknown', r)
+
         elif r['kind'] == 'length':
             n = as_number(r['value'])
-            local = tok_by_num.get(n)
+            local_list = local_by_num.get(n, [])
             names = by_num.get(n, [])
-            if local:
+            if len(local_list) == 1:
+                msg, fix = phrase(local_list, names)
                 out.append(dict(cat='RAW_VALUE', sev='medium', proto=proto['id'],
-                                file=r['file'], line=r['line'], subject='%s { %s }' % (r['selector'], r['prop']),
-                                msg='сырые %s — есть токен %s' % (r['value'], local),
-                                fix='var(%s)' % local))
-            elif not names:
-                out.append(dict(cat='RAW_VALUE', sev='low', proto=proto['id'],
-                                file=r['file'], line=r['line'], subject='%s { %s }' % (r['selector'], r['prop']),
-                                msg='%s вне шкалы ДС' % r['value']))
+                                file=r['file'], line=r['line'], subject=subject,
+                                msg='сырые %s — %s' % (r['value'], msg), fix=fix))
+            elif names:
+                bump('length', r['value'], 'known', r)
+            else:
+                bump('length', r['value'], 'unknown', r)
+
+    complete = ds.get('variablesComplete', False)
+    for (kind, value, reason), (cnt, where) in agg.items():
+        fl, ln, sel = where
+        many = cnt > 1
+        head = '%s — %s' % (value, plural(cnt, 'раз', 'раза', 'раз')) if many else sel
+        if reason == 'known':
+            names = (by_color if kind == 'color' else by_num).get(
+                norm_color(value) if kind == 'color' else as_number(value), [])
+            msg = 'значение есть в ДС (%s%s), но записано числом' % (
+                names[0] if names else '—',
+                ' и ещё %d' % (len(names) - 1) if len(names) > 1 else '')
+            sev = 'medium'
+        else:
+            msg = ('в палитре ДС такого нет' if kind == 'color' else 'вне шкалы ДС') + \
+                  ('' if complete else '; слепок ДС неполон')
+            sev = 'medium' if (kind == 'color' and complete) else 'low'
+        if many:
+            msg += '. Первое вхождение %s: %s' % (fl, sel)
+        out.append(dict(cat='RAW_VALUE', sev=sev, proto=proto['id'],
+                        file=fl, line=ln, subject=head, msg=msg))
+
     return buckets
 
 
@@ -288,7 +385,7 @@ def check_components(proto, ds, cfg, out):
             if name in watchlist and not comp.get('deprecated') and proto.get('tier') != 'legacy':
                 out.append(dict(cat='MISSING_COMPONENT', sev='info', proto=proto['id'],
                                 file=None, line=None, subject=name,
-                                msg='есть в ДС (обновлён %s), в прототипе секции нет'
+                                msg='есть в ДС (обновлён %s), в коде не найден'
                                     % (comp.get('updatedAt', '')[:10] or '—')))
             continue
 

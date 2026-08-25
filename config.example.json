@@ -234,5 +234,37 @@
   },
   "stateMapNote": "stateMap — общее соответствие состояний ДС селекторам CSS. stateMapByComponent переопределяет его там, где одно и то же слово значит разное: у Button Active — это нажатие, у Tab — выбранная вкладка.",
   "prototypesRoot": "..",
-  "prototypesRootNote": "Путь к папке с прототипами относительно корня бота. Так код не привязан к тому, что он лежит внутри папки заказчика."
+  "prototypesRootNote": "Путь к папке с прототипами относительно корня бота. Так код не привязан к тому, что он лежит внутри папки заказчика.",
+  "sources": [
+    {
+      "id": "prod-frontend",
+      "root": "/путь/к/репозиторию/фронтенда",
+      "tier": "production",
+      "theme": "light",
+      "accent": "Green",
+      "conventions": false,
+      "include": [
+        "**/*.css",
+        "**/*.scss",
+        "**/*.less",
+        "**/*.html",
+        "**/*.php",
+        "**/*.js",
+        "**/*.jsx"
+      ],
+      "exclude": [
+        "node_modules/**",
+        "vendor/**",
+        "dist/**",
+        "build/**",
+        "**/*.min.css",
+        "**/*.min.js"
+      ],
+      "outOfScopePrefixes": [
+        ".bx-",
+        ".bitrix"
+      ]
+    }
+  ],
+  "sourcesNote": "Продовый код, в котором сцепки с Figma нет. Токены опознаются по значению, компоненты — через componentMap. conventions:false выключает проверки, которым нужны комментарии с именами Figma Variables. Правки сюда бот не вносит — только PR."
 }

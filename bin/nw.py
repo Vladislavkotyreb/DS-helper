@@ -57,7 +57,7 @@ def checkpoint(cfg, label):
     dest = os.path.join(HERE, 'snapshots', 'runs', '%s-%s' % (stamp, label))
     try:
         os.makedirs(dest, exist_ok=False)
-        for proto in cfg['prototypes']:
+        for proto in cfg.get('prototypes', []):
             src = os.path.join(root, proto['dir'])
             if not os.path.isdir(src):
                 continue
@@ -81,12 +81,21 @@ def apply_fixes(cfg):
     findings = json.load(open(os.path.join(HERE, 'snapshots', 'findings.json'),
                               encoding='utf-8'))['findings']
     todo = [f for f in findings if f['cat'] == 'TOKEN_VALUE_DRIFT' and f.get('fix')]
+    protos = {p['id']: p for p in cfg.get('prototypes', [])}
+    sources = {s['id']: s for s in cfg.get('sources', [])}
+
+    skipped = [f for f in todo if f['proto'] in sources]
+    if skipped:
+        print('   продовые источники правлю не здесь: %d находок в %s.'
+              % (len(skipped), ', '.join(sorted({f['proto'] for f in skipped}))))
+        print('   в чужой репозиторий бот ходит пул-реквестом, а не правкой на месте.')
+    todo = [f for f in todo if f['proto'] in protos]
     if not todo:
         print('механических правок нет')
         return 0
     by_file = {}
     for f in todo:
-        proto = next(p for p in cfg['prototypes'] if p['id'] == f['proto'])
+        proto = protos[f['proto']]
         by_file.setdefault(os.path.join(proto_root(cfg), proto['dir'], f['file']), []).append(f)
     n = 0
     for path, items in by_file.items():
@@ -127,6 +136,9 @@ def main():
 
     print('1. сканирую прототипы')
     run('scan.py')
+    if cfg.get('sources'):
+        print('   сканирую продовые источники')
+        run('scan_src.py')
     print('2. сверяю с дизайн-системой')
     run('diff.py')
     print('3. ревью изменений в ДС')
