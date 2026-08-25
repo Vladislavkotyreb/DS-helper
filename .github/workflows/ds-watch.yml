@@ -38,11 +38,15 @@ jobs:
         env:
           NW_CONFIG: ${{ secrets.NW_CONFIG }}
         run: |
-          if [ -z "$NW_CONFIG" ]; then
-            echo "::error::Нет секрета NW_CONFIG — в нём лежит config.json с ключами Figma"
+          if [ -f config.json ]; then
+            echo "конфиг из репозитория"
+          elif [ -n "$NW_CONFIG" ]; then
+            printf '%s' "$NW_CONFIG" > config.json
+            echo "конфиг из секрета NW_CONFIG"
+          else
+            echo "::error::Нет ни config.json в репо, ни секрета NW_CONFIG"
             exit 1
           fi
-          printf '%s' "$NW_CONFIG" > config.json
           python3 -c "import json;json.load(open('config.json'));print('config.json принят')"
 
       - name: Событие из Figma в очередь
@@ -75,7 +79,9 @@ jobs:
       - name: Слепок ДС из кэша
         uses: actions/cache/restore@v4
         with:
-          path: snapshots/ds-latest.json
+          path: |
+            snapshots/ds-latest.json
+            snapshots/ds-remote-state.json
           key: ds-snapshot-${{ hashFiles('config.json') }}
           restore-keys: ds-snapshot-
 
@@ -147,7 +153,9 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: snapshots/ds-latest.json
+          path: |
+            snapshots/ds-latest.json
+            snapshots/ds-remote-state.json
           key: ds-snapshot-${{ hashFiles('config.json') }}-${{ github.run_id }}
 
       - name: Итог

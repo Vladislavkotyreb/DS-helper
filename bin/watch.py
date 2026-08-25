@@ -29,6 +29,13 @@ API = 'https://api.figma.com/v1'
 COALESCE_SECONDS = 600   # окно склейки событий одной публикации
 
 
+class ApiUnavailable(Exception):
+    """Figma не ответила. transient=True — лимит или сбой, не ошибка конфигурации."""
+    def __init__(self, msg, transient=False):
+        super().__init__(msg)
+        self.transient = transient
+
+
 def load_config(here):
     p = os.path.join(here, 'config.json')
     if not os.path.exists(p):
@@ -44,9 +51,10 @@ def api_get(path, token):
             return json.load(r)
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', 'replace')[:300]
-        raise SystemExit('Figma API %s → %s: %s' % (path, e.code, body))
+        raise ApiUnavailable('Figma API %s → %s: %s' % (path, e.code, body),
+                             transient=e.code in (429, 500, 502, 503))
     except urllib.error.URLError as e:
-        raise SystemExit('Figma API недоступен: %s' % e.reason)
+        raise ApiUnavailable('Figma API недоступен: %s' % e.reason, transient=True)
 
 
 def index_assets(payload):
@@ -185,7 +193,17 @@ def main():
 
     sp = os.path.join(here, 'snapshots', 'ds-remote-state.json')
     prev = json.load(open(sp, encoding='utf-8')) if os.path.exists(sp) else None
-    cur = poll(cfg, token)
+    try:
+        cur = poll(cfg, token)
+    except ApiUnavailable as e:
+        # Временный отказ (лимит 429 и подобное) не должен ронять запланированный
+        # прогон: сверка со старым слепком всё равно полезна. Но и молчать нельзя.
+        write_trigger(here, False, ['опрос не удался: %s' % e], None, False, 'poll')
+        sys.stderr.write('%s\n' % e)
+        if e.transient:
+            print('опрос пропущен (временный отказ), прошлое состояние не тронуто')
+            return 0
+        return 2
     delta = diff_state(prev, cur)
     n = sum(len(delta[v]) for v in ('created', 'modified', 'deleted'))
 
