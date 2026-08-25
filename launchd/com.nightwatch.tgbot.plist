@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Автозапуск телеграм-бота при входе в систему.
+
+  Установка:
+    1) впишите свои пути и токен ниже
+    2) cp launchd/com.nightwatch.tgbot.plist ~/Library/LaunchAgents/
+    3) launchctl load ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
+
+  Остановить:  launchctl unload ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
+  Логи:        ~/Library/Logs/nightwatch-tgbot.log
+
+  Токен в plist — это файл на диске в открытом виде. Если так не хочется,
+  уберите его отсюда и запускайте бота вручную из терминала с переменной окружения.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nightwatch.tgbot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/ПУТЬ/К/night-watch/bin/tgbot.py</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TG_BOT_TOKEN</key>
+    <string>ТОКЕН_ОТ_BOTFATHER</string>
+    <key>TG_ALLOWED_CHATS</key>
+    <string>ВАШ_CHAT_ID</string>
+    <!-- необязательно: с ним бот заметит, что дизайн-система уехала -->
+    <key>FIGMA_TOKEN</key>
+    <string></string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/ВЫ/Library/Logs/nightwatch-tgbot.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ВЫ/Library/Logs/nightwatch-tgbot.log</string>
+</dict>
+</plist>
