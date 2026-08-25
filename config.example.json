@@ -1,0 +1,238 @@
+{
+  "project": "R4S",
+  "figma": {
+    "designSystemFileKey": "<DS_FILE_KEY>",
+    "designSystemName": "R4S design system",
+    "libraryKey": "<LIBRARY_KEY>",
+    "mockupFiles": {
+      "<имя файла макетов>": "<MOCKUP_FILE_KEY>"
+    },
+    "changeLogPage": "<NODE_ID страницы change-log>",
+    "componentPagesNote": "node-id страниц компонентов ДС — брать из URL, см. skill/references/figma-pull.md"
+  },
+  "prototypes": [
+    {
+      "id": "r4s-requests-768",
+      "dir": "r4s-requests-768",
+      "tier": "current",
+      "theme": "light",
+      "accent": "Green"
+    },
+    {
+      "id": "r4s-late-light",
+      "dir": "бП-Опоздание-актуально!",
+      "tier": "current",
+      "theme": "light",
+      "accent": "Green"
+    },
+    {
+      "id": "r4s-schedule-prototype",
+      "dir": "r4s-schedule-prototype",
+      "tier": "legacy",
+      "theme": "dark",
+      "accent": "Green"
+    },
+    {
+      "id": "r4s-employee-prototype",
+      "dir": "r4s-employee-prototype",
+      "tier": "legacy",
+      "theme": "dark",
+      "accent": "Green"
+    },
+    {
+      "id": "r4s-requests-prototype",
+      "dir": "r4s-requests-prototype",
+      "tier": "legacy",
+      "theme": "dark",
+      "accent": "Green"
+    }
+  ],
+  "watchlist": [
+    "Button",
+    "Button-icon",
+    "Chip",
+    "Tag",
+    " Segmented control v2",
+    ".tile",
+    "Tab",
+    "Tabs-navigation",
+    "Inputs/Text/Medium",
+    "Inputs/Text/Large",
+    "Inputs/Date/Medium",
+    "Inputs / Dropdown / Medium",
+    "Inputs / Message",
+    "Inputs / Search / Medium",
+    "Checkbox",
+    "Checkbox+Text",
+    "Radio",
+    "Radio+Text",
+    "Tooltip",
+    "Filter",
+    "Calendar Dates",
+    "Slider"
+  ],
+  "componentMap": {
+    ".btn": "Button",
+    ".btn-large": "Button",
+    ".btn--link": "Legacy/Button Smallest",
+    ".btn-icon": "Button-icon",
+    ".chip": "Chip",
+    ".segmented__item": " Segmented control v2",
+    ".tile": ".tile",
+    ".tab": "Tab",
+    ".tabs": "Tabs-navigation",
+    ".input-text": "Inputs/Text/Medium",
+    ".input-dropdown": "Inputs / Dropdown / Medium",
+    ".input-message": "Inputs / Message",
+    ".check": "Checkbox",
+    ".cal--page": "Calendar Dates"
+  },
+  "stateMap": {
+    "Default": [
+      "base"
+    ],
+    "Hover": [
+      ":hover"
+    ],
+    "Active": [
+      ":active"
+    ],
+    "Focus": [
+      ":focus-visible",
+      ":focus"
+    ],
+    "Disabled": [
+      "[aria-disabled=\"true\"]",
+      ":disabled",
+      ".is-disabled"
+    ],
+    "Loading": [
+      ".is-loading",
+      "[aria-busy=\"true\"]"
+    ],
+    "Selected": [
+      "[aria-pressed=\"true\"]",
+      "[aria-selected=\"true\"]",
+      "[aria-checked=\"true\"]",
+      ":checked",
+      ".is-active",
+      ".is-selected"
+    ],
+    "Error": [
+      ".is-error",
+      "[aria-invalid=\"true\"]",
+      ".field--error",
+      ".is-invalid"
+    ],
+    "Filled": [
+      ".is-filled",
+      "[data-filled]"
+    ],
+    "Opened": [
+      ".is-open",
+      "[aria-expanded=\"true\"]"
+    ],
+    "Focused": [
+      ":focus-visible",
+      ":focus",
+      ".is-focused"
+    ],
+    "Locked": [
+      "[aria-disabled=\"true\"]",
+      ":disabled",
+      ".is-locked"
+    ]
+  },
+  "outOfScope": {
+    "comment": "Битрикс-хром — перерисованный портал, не наш UI. Сырые значения здесь не считаются дрейфом ДС (DS-AUDIT §1.2).",
+    "selectorPrefixes": [
+      ".nav",
+      ".head",
+      ".rail",
+      ".mhead",
+      ".foot",
+      ".portal",
+      ".bx-"
+    ],
+    "files": []
+  },
+  "knownGaps": [
+    "<чего нет в макетах — сюда, чтобы бот не выдавал это за ошибку>"
+  ],
+  "foreignVariablePrefixes": {
+    "Border Radius/": "Bitrix-кит, коллекция Dimension — в R4S это Layout/Border-radius/*",
+    "Border/": "Bitrix-кит, коллекция Dimension",
+    "Components/": "Bitrix-кит, коллекция Dimension",
+    "Core/": "чужой кит, коллекция Numbers",
+    "Typography/": "чужой кит, коллекция Typography — в R4S это Layout/Font-size/*",
+    "Spacing/": "осиротевшая коллекция внутри файла ДС, в UI переменных не видна (DS-AUDIT §4.1)",
+    "Primitives/": "осиротевшая коллекция внутри файла ДС, в UI переменных не видна (DS-AUDIT §4.1)"
+  },
+  "statesProvidedByWrapper": [
+    "Error",
+    "Filled",
+    "Opened"
+  ],
+  "statesProvidedByWrapperNote": "Эти состояния в вёрстке часто висят на обёртке поля, а не на самом инпуте (.is-invalid на .field). Их ищем по всему прототипу, а не только в секции компонента, иначе получаются ложные пропуски.",
+  "stateMapByComponent": {
+    "Tab": {
+      "Active": [
+        "[aria-selected=\"true\"]",
+        ".is-active",
+        "[aria-current]"
+      ]
+    },
+    "Tabs-navigation": {
+      "Active": [
+        "[aria-selected=\"true\"]",
+        ".is-active",
+        "[aria-current]"
+      ]
+    },
+    "Checkbox": {
+      "Selected": [
+        "[aria-checked=\"true\"]",
+        ":checked"
+      ],
+      "Half-selected": [
+        "[aria-checked=\"mixed\"]",
+        ".is-indeterminate"
+      ],
+      "Selected disabled": [
+        "[aria-checked=\"true\"][aria-disabled=\"true\"]"
+      ]
+    },
+    "Checkbox+Text": {
+      "Selected": [
+        "[aria-checked=\"true\"]",
+        ":checked"
+      ],
+      "Half-selected": [
+        "[aria-checked=\"mixed\"]",
+        ".is-indeterminate"
+      ]
+    },
+    "Radio": {
+      "Selected": [
+        "[aria-checked=\"true\"]",
+        ":checked"
+      ]
+    },
+    "Radio+Text": {
+      "Selected": [
+        "[aria-checked=\"true\"]",
+        ":checked"
+      ]
+    },
+    ".tile": {
+      "Selected": [
+        "[aria-pressed=\"true\"]",
+        ".is-active",
+        ".is-selected"
+      ]
+    }
+  },
+  "stateMapNote": "stateMap — общее соответствие состояний ДС селекторам CSS. stateMapByComponent переопределяет его там, где одно и то же слово значит разное: у Button Active — это нажатие, у Tab — выбранная вкладка.",
+  "prototypesRoot": "..",
+  "prototypesRootNote": "Путь к папке с прототипами относительно корня бота. Так код не привязан к тому, что он лежит внутри папки заказчика."
+}

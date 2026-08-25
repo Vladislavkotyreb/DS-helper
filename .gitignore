@@ -1,0 +1,11 @@
+# Данные заказчика: инвентарь ДС, слепки кода, отчёты, чекпоинты с копиями исходников.
+# Репозиторий публичный — сюда это не выкладывается.
+config.json
+snapshots/*
+!snapshots/.gitkeep
+reports/*
+!reports/.gitkeep
+
+__pycache__/
+*.pyc
+.DS_Store
