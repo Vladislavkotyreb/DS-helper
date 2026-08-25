@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Автозапуск телеграм-бота при входе в систему.
 
+  Секретов здесь нет намеренно: launchd умеет держать переменные прямо в plist,
+  но там они лежат открытым текстом в файле, который попадает в бэкапы.
+  Бот берёт их из ~/.night-watch.env с правами 600.
+
   Установка:
-    1) впишите свои пути и токен ниже
-    2) cp launchd/com.nightwatch.tgbot.plist ~/Library/LaunchAgents/
-    3) launchctl load ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
+    1) подставьте свой путь вместо /ПУТЬ/К/night-watch
+    2) заполните ~/.night-watch.env, проверьте: python3 bin/tgbot.py --check
+    3) cp launchd/com.nightwatch.tgbot.plist ~/Library/LaunchAgents/
+    4) launchctl load ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
 
   Остановить:  launchctl unload ~/Library/LaunchAgents/com.nightwatch.tgbot.plist
   Логи:        ~/Library/Logs/nightwatch-tgbot.log
 
-  Токен в plist — это файл на диске в открытом виде. Если так не хочется,
-  уберите его отсюда и запускайте бота вручную из терминала с переменной окружения.
+  KeepAlive стоит с SuccessfulExit=false: перезапускать только при падении.
+  Иначе при неверном токене launchd будет крутить бота по кругу.
 -->
 <plist version="1.0">
 <dict>
@@ -24,21 +30,18 @@
     <string>/ПУТЬ/К/night-watch/bin/tgbot.py</string>
   </array>
 
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>TG_BOT_TOKEN</key>
-    <string>ТОКЕН_ОТ_BOTFATHER</string>
-    <key>TG_ALLOWED_CHATS</key>
-    <string>ВАШ_CHAT_ID</string>
-    <!-- необязательно: с ним бот заметит, что дизайн-система уехала -->
-    <key>FIGMA_TOKEN</key>
-    <string></string>
-  </dict>
+  <key>WorkingDirectory</key>
+  <string>/ПУТЬ/К/night-watch</string>
 
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
 
   <key>StandardOutPath</key>
   <string>/Users/ВЫ/Library/Logs/nightwatch-tgbot.log</string>

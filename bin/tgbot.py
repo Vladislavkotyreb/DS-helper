@@ -264,13 +264,66 @@ def handle(token, chat_id, text):
     say(token, chat_id, 'Не понял. /help')
 
 
+ENV_FILE = os.path.expanduser('~/.night-watch.env')
+
+
+def load_env_file():
+    """
+    Секреты из ~/.night-watch.env, если их нет в окружении.
+    launchd умеет держать переменные прямо в plist, но там они лежат открытым
+    текстом в файле, который попадает в бэкапы. Отдельный файл с правами 600 лучше.
+    """
+    if not os.path.exists(ENV_FILE):
+        return
+    mode = os.stat(ENV_FILE).st_mode & 0o777
+    if mode & 0o077:
+        sys.stderr.write('ВНИМАНИЕ: %s читаем не только вам (права %o). '
+                         'Поправьте: chmod 600 %s\n' % (ENV_FILE, mode, ENV_FILE))
+    for line in open(ENV_FILE, encoding='utf-8'):
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        os.environ.setdefault(k.strip(), v.strip().strip('"\''))
+
+
+def check():
+    """Проверить настройку, ничего не запуская и никуда не ходя."""
+    load_env_file()
+    ok = True
+    tok = os.environ.get('TG_BOT_TOKEN', '')
+    chats = os.environ.get('TG_ALLOWED_CHATS', '')
+    print('файл секретов: %s' % (ENV_FILE if os.path.exists(ENV_FILE) else 'нет'))
+    if not tok or 'ТОКЕН' in tok:
+        print('  TG_BOT_TOKEN — не задан'); ok = False
+    elif not re.match(r'^\d{6,}:[A-Za-z0-9_-]{30,}$', tok):
+        print('  TG_BOT_TOKEN — не похож на токен телеграма'); ok = False
+    else:
+        print('  TG_BOT_TOKEN — на месте (%s…)' % tok.split(':')[0])
+    if not chats or 'CHAT' in chats.upper():
+        print('  TG_ALLOWED_CHATS — не задан'); ok = False
+    else:
+        print('  TG_ALLOWED_CHATS — %s' % chats)
+    print('  FIGMA_TOKEN — %s' % ('задан, свежесть ДС будет проверяться'
+                                  if os.environ.get('FIGMA_TOKEN') else
+                                  'не задан, проверки свежести ДС не будет'))
+    for f in ('config.json', 'snapshots/ds-latest.json'):
+        print('  %-28s %s' % (f, 'есть' if os.path.exists(os.path.join(HERE, f)) else 'НЕТ'))
+    print('готов к запуску' if ok else 'не готов — заполните файл секретов')
+    return 0 if ok else 1
+
+
 def main():
+    if '--check' in sys.argv:
+        return check()
+    load_env_file()
     token = os.environ.get('TG_BOT_TOKEN')
     if not token:
         sys.stderr.write(
             'Нет TG_BOT_TOKEN.\n'
-            'Токен выдаёт @BotFather в телеграме. Положите его в переменную окружения —\n'
-            'бот его только читает, никуда не пишет и не логирует.\n')
+            'Токен выдаёт @BotFather. Положите его в переменную окружения или\n'
+            'в %s строкой TG_BOT_TOKEN=...\n'
+            'Бот его только читает, никуда не пишет и не логирует.\n' % ENV_FILE)
         return 2
     allowed = {c.strip() for c in (os.environ.get('TG_ALLOWED_CHATS') or '').split(',') if c.strip()}
     if not allowed:
