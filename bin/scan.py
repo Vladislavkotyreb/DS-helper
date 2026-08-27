@@ -114,9 +114,40 @@ def line_of(text, pos):
     return text.count('\n', 0, pos) + 1
 
 
+def media_line_ranges(css_text):
+    """
+    Line numbers that sit inside an @media block.
+
+    A token redeclared under @media (prefers-reduced-motion) or a breakpoint is
+    a conditional override, not the token's value. Letting the last declaration
+    win turns a correct file into a false drift report.
+    """
+    bare = strip_comments(css_text)
+    inside = set()
+    i = 0
+    while True:
+        m = re.search(r'@media[^{]*\{', bare[i:])
+        if not m:
+            break
+        start = i + m.start()
+        pos = i + m.end()
+        depth = 1
+        while pos < len(bare) and depth:
+            if bare[pos] == '{':
+                depth += 1
+            elif bare[pos] == '}':
+                depth -= 1
+            pos += 1
+        for ln in range(line_of(bare, start), line_of(bare, min(pos, len(bare) - 1)) + 1):
+            inside.add(ln)
+        i = pos
+    return inside
+
+
 def parse_tokens(css_text, fname, line_offset=0):
     """Tokens from :root. Value plus the Figma name from the trailing comment."""
     tokens = {}
+    conditional = media_line_ranges(css_text)
     for ln, raw in enumerate(css_text.split('\n'), 1):
         decls = list(RE_DECL.finditer(raw))
         if not decls:
@@ -128,15 +159,22 @@ def parse_tokens(css_text, fname, line_offset=0):
             # a Figma name looks like Color/Text/Default/Primary or Layout/Font-size/Text-M
             if re.fullmatch(r'[A-Za-zА-Яа-я0-9 _./+-]+', c) and '/' in c and len(c) < 80:
                 figma_name = c
+        in_media = ln in conditional
         for k, d in enumerate(decls):
             name = '--' + d.group(1)
             value = d.group(2).strip()
+            if in_media and name in tokens and not tokens[name].get('conditional'):
+                # base declaration already seen — keep it, note the override
+                tokens[name].setdefault('overrides', []).append(
+                    {'value': value, 'line': ln + line_offset})
+                continue
             tokens[name] = {
                 'value': value,
                 'color': norm_color(value),
                 'figmaName': figma_name if k == len(decls) - 1 else None,
                 'file': fname,
                 'line': ln + line_offset,
+                'conditional': in_media,
             }
     return tokens
 
