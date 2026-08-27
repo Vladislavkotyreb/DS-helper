@@ -5,8 +5,10 @@ name: DS watch
 #   dispatch  — manually from the Actions tab
 #   repository_dispatch — a LIBRARY_PUBLISH event delivered by the Figma relay
 on:
-  schedule:
-    - cron: '0 6 * * 1-5'      # weekdays, 06:00 UTC — before the workday starts
+  # The schedule is commented out in the template on purpose: an unconfigured
+  # repo has nothing to poll. Uncomment after filling in config + FIGMA_TOKEN.
+  # schedule:
+  #   - cron: '0 6 * * 1-5'    # weekdays, 06:00 UTC — before the workday starts
   workflow_dispatch:
     inputs:
       fail-on:
@@ -35,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Config from secret
+        id: cfg
         env:
           NW_CONFIG: ${{ secrets.NW_CONFIG }}
         run: |
@@ -44,25 +47,28 @@ jobs:
             printf '%s' "$NW_CONFIG" > config.json
             echo "config from the NW_CONFIG secret"
           else
-            echo "::error::Neither config.json in the repo nor the NW_CONFIG secret"
-            exit 1
+            echo "::notice::No config.json and no NW_CONFIG secret — unconfigured template, nothing to watch. See docs/QUICKSTART.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           python3 -c "import json;json.load(open('config.json'));print('config.json accepted')"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Queue the Figma event
-        if: github.event_name == 'repository_dispatch'
+        if: steps.cfg.outputs.ok == 'true' && github.event_name == 'repository_dispatch'
         run: |
           printf '%s' '${{ toJSON(github.event.client_payload) }}' > /tmp/event.json
           python3 bin/watch.py --event /tmp/event.json
           python3 bin/watch.py --drain
 
       - name: Poll the design system
-        if: github.event_name != 'repository_dispatch'
+        if: steps.cfg.outputs.ok == 'true' && github.event_name != 'repository_dispatch'
         env:
           FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
         run: python3 bin/watch.py
 
       - name: Decide whether to wake the bot
+        if: steps.cfg.outputs.ok == 'true'
         id: trigger
         run: |
           CHANGED=$(python3 -c "import json;print(json.load(open('snapshots/trigger.json'))['changed'])")
@@ -77,6 +83,7 @@ jobs:
           "
 
       - name: DS snapshot from cache
+        if: steps.cfg.outputs.ok == 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -89,7 +96,7 @@ jobs:
       # Enterprise-only. If a publish touched variables, the snapshot is marked
       # stale and the report says so honestly instead of comparing to stale data.
       - name: Mark snapshot stale if variables moved
-        if: steps.trigger.outputs.needs_vars == 'True'
+        if: steps.cfg.outputs.ok == 'true' && steps.trigger.outputs.needs_vars == 'True'
         run: |
           python3 - <<'PY'
           import json, os
@@ -106,20 +113,21 @@ jobs:
           PY
 
       - name: Compare
+        if: steps.cfg.outputs.ok == 'true'
         id: diff
         continue-on-error: true
         run: |
           python3 bin/nw.py --fail-on "${{ inputs.fail-on || 'new' }}" --sarif nw.sarif
 
       - name: Findings to code scanning
-        if: always() && hashFiles('nw.sarif') != ''
+        if: always() && steps.cfg.outputs.ok == 'true' && hashFiles('nw.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: nw.sarif
           category: ds-helper
 
       - name: Report into the run summary
-        if: always()
+        if: always() && steps.cfg.outputs.ok == 'true'
         run: |
           {
             echo "## Night Watch — design-system check"
@@ -138,7 +146,7 @@ jobs:
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Artifacts
-        if: always()
+        if: always() && steps.cfg.outputs.ok == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ds-report
@@ -149,13 +157,13 @@ jobs:
           retention-days: 30
 
       - name: Accept the baseline
-        if: inputs.accept-baseline
+        if: steps.cfg.outputs.ok == 'true' && inputs.accept-baseline
         run: |
           python3 bin/nw.py --accept
           echo "Baseline updated. Commit snapshots/baseline.json." >> $GITHUB_STEP_SUMMARY
 
       - name: Save snapshot to cache
-        if: always()
+        if: always() && steps.cfg.outputs.ok == 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -164,7 +172,7 @@ jobs:
           key: ds-snapshot-${{ hashFiles('config.json') }}-${{ github.run_id }}
 
       - name: Verdict
-        if: always()
+        if: always() && steps.cfg.outputs.ok == 'true'
         run: |
           if [ "${{ steps.diff.outcome }}" = "failure" ]; then
             echo "::warning::New design-system drift — see Security → Code scanning"

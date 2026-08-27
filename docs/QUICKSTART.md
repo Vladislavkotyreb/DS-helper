@@ -117,7 +117,8 @@ gradually. Commit `config.json`, `snapshots/ds-latest.json` and
 ## Optional
 
 **Figma schedule** — `ds-watch.yml` + a `FIGMA_TOKEN` secret: the repository
-notices library publishes on its own and marks the snapshot stale.
+notices library publishes on its own and marks the snapshot stale. The cron
+block ships commented out — uncomment it once the config is in place.
 
 **Webhook instead of polling** — `bin/webhook.py` +
 `relay/cloudflare-worker.js`: a LIBRARY_PUBLISH event wakes CI right after a
