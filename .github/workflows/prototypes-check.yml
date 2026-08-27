@@ -79,6 +79,10 @@ jobs:
           {
             echo "## Mockups vs design system"
             echo
+            if [ ! -f reports/REPORT.md ]; then
+              echo "_The run crashed before a report was produced — see the failed step above._"
+              exit 0
+            fi
             sed -n '1,40p' reports/REPORT.md
             echo
             echo "<details><summary>Full report</summary>"

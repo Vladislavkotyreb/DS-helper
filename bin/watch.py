@@ -148,14 +148,15 @@ def drain_events(here):
 
 
 def write_trigger(here, changed, reasons, delta, needs_vars, source):
-    t = {'generatedAt': datetime.datetime.now().isoformat(timespec='seconds'),
-         'source': source, 'changed': bool(changed), 'reasons': reasons,
-         'delta': delta, 'needsVariableRefresh': bool(needs_vars),
-         'variablesNote': t('Значения переменных через REST недоступны — Variables API только для Enterprise. Нужен прогон агента с Figma MCP.',
-                            'Variable values are unavailable over REST — the Variables API is Enterprise-only. An agent run with Figma MCP is required.')}
-    json.dump(t, open(os.path.join(here, 'snapshots', 'trigger.json'), 'w', encoding='utf-8'),
+    # NB: not named `t` — that would shadow the i18n helper and blow up
+    trig = {'generatedAt': datetime.datetime.now().isoformat(timespec='seconds'),
+            'source': source, 'changed': bool(changed), 'reasons': reasons,
+            'delta': delta, 'needsVariableRefresh': bool(needs_vars),
+            'variablesNote': t('Значения переменных через REST недоступны — Variables API только для Enterprise. Нужен прогон агента с Figma MCP.',
+                               'Variable values are unavailable over REST — the Variables API is Enterprise-only. An agent run with Figma MCP is required.')}
+    json.dump(trig, open(os.path.join(here, 'snapshots', 'trigger.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=2)
-    return t
+    return trig
 
 
 def main():

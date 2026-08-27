@@ -124,6 +124,10 @@ jobs:
           {
             echo "## Night Watch — design-system check"
             echo
+            if [ ! -f reports/REPORT.md ]; then
+              echo "_The run crashed before a report was produced — see the failed step above._"
+              exit 0
+            fi
             sed -n '1,60p' reports/REPORT.md
             echo
             echo "<details><summary>Full report</summary>"
