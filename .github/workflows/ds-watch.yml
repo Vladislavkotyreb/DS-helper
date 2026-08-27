@@ -1,34 +1,36 @@
 name: DS watch
 
-# Three ways to wake up:
-#   schedule  — scheduled polling, the default mode and a safety net for missed events
-#   dispatch  — manually from the Actions tab
-#   repository_dispatch — a LIBRARY_PUBLISH event delivered by the Figma relay
+# Сторож дизайн-системы. Он НЕ ворота: провалить прогон ему нечем и незачем.
+#
+# Причина в ограничении Figma: значения переменных отдаёт только Plugin API
+# через MCP-сессию агента (Variables REST API — Enterprise). Значит CI умеет
+# заметить, что библиотеку публиковали, но не умеет обновить слепок сам.
+# Задача, которую нельзя закончить, не должна быть красной проверкой —
+# иначе на красное перестают смотреть. Поэтому здесь детектор и уведомление:
+# заметил изменения → завёл issue «слепок устарел» → человек просит агента.
+#
+# Сверка кода с ДС живёт отдельно, в prototypes-check, и запускается на каждый
+# пуш и PR. Здесь она не повторяется: слепок тот же, результат был бы тот же.
+
 on:
-  # The schedule is commented out in the template on purpose: an unconfigured
-  # repo has nothing to poll. Uncomment after filling in config + FIGMA_TOKEN.
+  # Крон выключен в шаблоне намеренно: ненастроенному репозиторию нечего
+  # опрашивать. Раскомментируйте, когда конфиг и FIGMA_TOKEN на месте.
   # schedule:
-  #   - cron: '0 6 * * 1-5'    # weekdays, 06:00 UTC — before the workday starts
+  #   - cron: '0 6 * * 1-5'    # будни, 06:00 UTC — до начала рабочего дня
   workflow_dispatch:
-    inputs:
-      fail-on:
-        description: 'Failure threshold: new | high | medium | low | never'
-        default: 'new'
-      accept-baseline:
-        description: 'Accept the current state as the baseline'
-        type: boolean
-        default: false
   repository_dispatch:
     types: [figma-library-publish]
 
 permissions:
   contents: read
-  security-events: write        # for the SARIF upload to code scanning
-  issues: write                 # for reporting into an issue
+  issues: write
 
 concurrency:
   group: ds-watch
   cancel-in-progress: false
+
+env:
+  STALE_LABEL: ds-stale
 
 jobs:
   watch:
@@ -36,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Config from secret
+      - name: Config
         id: cfg
         env:
           NW_CONFIG: ${{ secrets.NW_CONFIG }}
@@ -47,12 +49,35 @@ jobs:
             printf '%s' "$NW_CONFIG" > config.json
             echo "config from the NW_CONFIG secret"
           else
-            echo "::notice::No config.json and no NW_CONFIG secret — unconfigured template, nothing to watch. See docs/QUICKSTART.md."
+            echo "::notice::No config — nothing to watch. See docs/QUICKSTART.md."
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 -c "import json;json.load(open('config.json'));print('config.json accepted')"
+          python3 -c "import json;json.load(open('config.json'))"
           echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Token present?
+        id: tok
+        if: steps.cfg.outputs.ok == 'true'
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+        run: |
+          if [ -z "$FIGMA_TOKEN" ]; then
+            echo "::notice::No FIGMA_TOKEN secret — polling disabled. Add it in Settings → Secrets."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Только состояние опроса. ds-latest.json лежит в гите — восстановление
+      # его из кэша затёрло бы свежий закоммиченный слепок более старым.
+      - name: Poll state from cache
+        if: steps.tok.outputs.ok == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: snapshots/ds-remote-state.json
+          key: ds-poll-state-${{ hashFiles('config.json') }}
+          restore-keys: ds-poll-state-
 
       - name: Queue the Figma event
         if: steps.cfg.outputs.ok == 'true' && github.event_name == 'repository_dispatch'
@@ -62,120 +87,129 @@ jobs:
           python3 bin/watch.py --drain
 
       - name: Poll the design system
-        if: steps.cfg.outputs.ok == 'true' && github.event_name != 'repository_dispatch'
+        if: steps.tok.outputs.ok == 'true' && github.event_name != 'repository_dispatch'
         env:
           FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
         run: python3 bin/watch.py
 
-      - name: Decide whether to wake the bot
-        if: steps.cfg.outputs.ok == 'true'
-        id: trigger
-        run: |
-          CHANGED=$(python3 -c "import json;print(json.load(open('snapshots/trigger.json'))['changed'])")
-          NEEDS=$(python3 -c "import json;print(json.load(open('snapshots/trigger.json'))['needsVariableRefresh'])")
-          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
-          echo "needs_vars=$NEEDS"  >> $GITHUB_OUTPUT
-          python3 -c "
-          import json
-          t = json.load(open('snapshots/trigger.json'))
-          print('Source:', t['source'])
-          print('Changes:', '; '.join(t['reasons']))
-          "
-
-      - name: DS snapshot from cache
-        if: steps.cfg.outputs.ok == 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            snapshots/ds-latest.json
-            snapshots/ds-remote-state.json
-          key: ds-snapshot-${{ hashFiles('config.json') }}
-          restore-keys: ds-snapshot-
-
-      # Variable values cannot be fetched from CI: the Variables REST API is
-      # Enterprise-only. If a publish touched variables, the snapshot is marked
-      # stale and the report says so honestly instead of comparing to stale data.
-      - name: Mark snapshot stale if variables moved
-        if: steps.cfg.outputs.ok == 'true' && steps.trigger.outputs.needs_vars == 'True'
-        run: |
-          python3 - <<'PY'
-          import json, os
-          p = 'snapshots/ds-latest.json'
-          if os.path.exists(p):
-              d = json.load(open(p, encoding='utf-8'))
-              d['variablesComplete'] = False
-              d['variablesNote'] = ('A library publish touched variables, and their values '
-                                    'cannot be fetched from CI — the Variables REST API is '
-                                    'Enterprise-only. Snapshot marked stale: an agent run '
-                                    'with Figma MCP is required.')
-              json.dump(d, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
-              print('snapshot marked stale')
-          PY
-
-      - name: Compare
-        if: steps.cfg.outputs.ok == 'true'
-        id: diff
-        continue-on-error: true
-        run: |
-          python3 bin/nw.py --fail-on "${{ inputs.fail-on || 'new' }}" --sarif nw.sarif
-
-      - name: Findings to code scanning
-        if: always() && steps.cfg.outputs.ok == 'true' && hashFiles('nw.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: nw.sarif
-          category: ds-helper
-
-      - name: Report into the run summary
-        if: always() && steps.cfg.outputs.ok == 'true'
-        run: |
-          {
-            echo "## Night Watch — design-system check"
-            echo
-            if [ ! -f reports/REPORT.md ]; then
-              echo "_The run crashed before a report was produced — see the failed step above._"
-              exit 0
-            fi
-            sed -n '1,60p' reports/REPORT.md
-            echo
-            echo "<details><summary>Full report</summary>"
-            echo
-            cat reports/REPORT.md
-            echo
-            echo "</details>"
-          } >> $GITHUB_STEP_SUMMARY
-
-      - name: Artifacts
-        if: always() && steps.cfg.outputs.ok == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ds-report
-          path: |
-            reports/
-            snapshots/findings.json
-            snapshots/trigger.json
-          retention-days: 30
-
-      - name: Accept the baseline
-        if: steps.cfg.outputs.ok == 'true' && inputs.accept-baseline
-        run: |
-          python3 bin/nw.py --accept
-          echo "Baseline updated. Commit snapshots/baseline.json." >> $GITHUB_STEP_SUMMARY
-
-      - name: Save snapshot to cache
-        if: always() && steps.cfg.outputs.ok == 'true'
+      - name: Save poll state to cache
+        if: always() && steps.tok.outputs.ok == 'true'
         uses: actions/cache/save@v4
         with:
-          path: |
-            snapshots/ds-latest.json
-            snapshots/ds-remote-state.json
-          key: ds-snapshot-${{ hashFiles('config.json') }}-${{ github.run_id }}
+          path: snapshots/ds-remote-state.json
+          key: ds-poll-state-${{ hashFiles('config.json') }}-${{ github.run_id }}
+
+      - name: Read the verdict
+        id: verdict
+        if: steps.cfg.outputs.ok == 'true'
+        run: |
+          if [ ! -f snapshots/trigger.json ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, datetime, os
+          t = json.load(open('snapshots/trigger.json'))
+          ds = json.load(open('snapshots/ds-latest.json'))
+          snap = ds.get('generatedAt', '')[:19]
+          age = ''
+          try:
+              d = datetime.datetime.fromisoformat(snap)
+              age = str((datetime.datetime.now() - d).days)
+          except Exception:
+              pass
+          print('changed=%s' % str(bool(t.get('changed'))).lower())
+          print('snapshot_at=%s' % snap)
+          print('snapshot_age_days=%s' % (age or '?'))
+          print('reasons=%s' % '; '.join(t.get('reasons') or [])[:300])
+          PY
+
+      - name: Compose the notice
+        if: steps.verdict.outputs.changed == 'true'
+        run: |
+          python3 - <<'PY' > /tmp/issue-body.md
+          import json
+          t = json.load(open('snapshots/trigger.json'))
+          d = t.get('delta') or {}
+          print('Дизайн-система изменилась после того, как был снят слепок.')
+          print()
+          print('- слепок: `%s`' % json.load(open('snapshots/ds-latest.json')).get('generatedAt', '?')[:19])
+          print('- причина: %s' % '; '.join(t.get('reasons') or []))
+          for verb, word in (('created', 'Добавлено'), ('modified', 'Изменено'), ('deleted', 'Удалено')):
+              names = d.get(verb) or []
+              if names:
+                  print()
+                  print('**%s (%d):** %s%s' % (word, len(names), ', '.join(names[:12]),
+                                               ' …' if len(names) > 12 else ''))
+          if t.get('needsVariableRefresh'):
+              print()
+              print('Затронуты переменные — значения могли поехать, сверка идёт по старым.')
+          print()
+          print('---')
+          print()
+          print('CI обновить слепок не может: значения переменных Figma отдаёт только')
+          print('через Plugin API в MCP-сессии агента (Variables REST API — Enterprise).')
+          print()
+          print('**Что сделать:** попросить агента «сними слепок ДС и закоммить»,')
+          print('затем `python3 bin/nw.py --promote`. Issue закроется сама на следующем')
+          print('прогоне, когда слепок станет свежее этой записи.')
+          PY
+          cat /tmp/issue-body.md
+
+      - name: Open or update the stale-snapshot issue
+        if: steps.verdict.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "$STALE_LABEL" --color D93F0B \
+            --description "Слепок ДС устарел, нужен прогон агента" 2>/dev/null || true
+          NUM=$(gh issue list --state open --label "$STALE_LABEL" --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body-file /tmp/issue-body.md
+            echo "::notice::Дополнил issue #$NUM"
+          else
+            NEW=$(gh issue create --title "Слепок дизайн-системы устарел" \
+                  --label "$STALE_LABEL" --body-file /tmp/issue-body.md)
+            echo "::notice::Завёл issue: $NEW"
+          fi
+
+      # Слепок обновили после того, как мы пожаловались → issue больше не нужна.
+      - name: Close the issue once the snapshot is fresh
+        if: steps.cfg.outputs.ok == 'true' && steps.verdict.outputs.changed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE=$(gh issue list --state open --label "$STALE_LABEL" --limit 1 \
+                  --json number,createdAt --jq '.[0] // empty')
+          [ -z "$ISSUE" ] && { echo "открытых issue нет"; exit 0; }
+          NUM=$(echo "$ISSUE" | python3 -c 'import json,sys;print(json.load(sys.stdin)["number"])')
+          OPENED=$(echo "$ISSUE" | python3 -c 'import json,sys;print(json.load(sys.stdin)["createdAt"])')
+          SNAP="${{ steps.verdict.outputs.snapshot_at }}"
+          FRESH=$(python3 - "$OPENED" "$SNAP" <<'PY'
+          import sys, datetime
+          try:
+              opened = datetime.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).replace(tzinfo=None)
+              snap = datetime.datetime.fromisoformat(sys.argv[2])
+              print('yes' if snap > opened else 'no')
+          except Exception:
+              print('no')
+          PY
+          )
+          if [ "$FRESH" = "yes" ]; then
+            gh issue close "$NUM" --comment "Слепок обновлён (${SNAP}) — сторож закрывает."
+            echo "::notice::Закрыл issue #$NUM"
+          else
+            echo "issue #$NUM остаётся: слепок ещё не обновляли"
+          fi
 
       - name: Verdict
         if: always() && steps.cfg.outputs.ok == 'true'
         run: |
-          if [ "${{ steps.diff.outcome }}" = "failure" ]; then
-            echo "::warning::New design-system drift — see Security → Code scanning"
-            exit 1
-          fi
-          echo "No new drift"
+          {
+            echo "## DS watch"
+            echo
+            echo "- слепок: \`${{ steps.verdict.outputs.snapshot_at }}\` (возраст ${{ steps.verdict.outputs.snapshot_age_days }} дн.)"
+            echo "- изменения в ДС: ${{ steps.verdict.outputs.changed }}"
+            echo "- ${{ steps.verdict.outputs.reasons }}"
+            echo
+            echo "_Сторож не роняет прогон: обновить слепок из CI нельзя, поэтому он только уведомляет._"
+          } >> "$GITHUB_STEP_SUMMARY"
